@@ -1,0 +1,7 @@
+{
+  "name": "flow",
+  "description": "Phased development workflow: setup → research → plan → gated plan review → implement → review-against-plan → gated report → wind-down. Durable file-based state, resumable from any session.",
+  "version": "0.1.0",
+  "author": { "name": "Scott Laing" },
+  "keywords": ["workflow", "planning", "review", "gates", "state-machine"]
+}

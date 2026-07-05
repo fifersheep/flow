@@ -144,5 +144,56 @@ class TestStateMachine(unittest.TestCase):
         self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
         self.assertEqual(self.attempt(wf("reporting")).returncode, 0)
 
+class TestLockdown(unittest.TestCase):
+    def setUp(self):
+        self.repo = Repo()
+
+    def activate(self, phase, branch="main", mode="full"):
+        text = wf(phase, mode=mode).replace("branch: main", f"branch: {branch}")
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
+
+    def edit_code(self):
+        return run_hook(payload("Write", self.repo.dir / "src/a.py", content="x"),
+                        self.repo.dir)
+
+    def test_planning_phase_blocks_code_edits(self):
+        self.activate("planning")
+        self.assertEqual(self.edit_code().returncode, 2)
+
+    def test_reporting_phase_blocks_code_edits(self):
+        self.activate("reporting")
+        self.assertEqual(self.edit_code().returncode, 2)
+
+    def test_implementation_phase_allows_code_edits(self):
+        self.activate("implementation")
+        self.assertEqual(self.edit_code().returncode, 0)
+
+    def test_task_folder_and_flow_md_exempt(self):
+        self.activate("planning")
+        inside = self.repo.dir / "docs/tasks/2026-07-05-demo/research.md"
+        r = run_hook(payload("Write", inside, content="notes"), self.repo.dir)
+        self.assertEqual(r.returncode, 0)
+        r = run_hook(payload("Write", self.repo.dir / ".flow.md", content="cfg"),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 0)
+
+    def test_other_branch_task_ignored(self):
+        self.activate("planning", branch="feature/other")
+        self.assertEqual(self.edit_code().returncode, 0)
+
+    def test_complete_and_forced_tasks_ignored(self):
+        self.activate("complete")
+        self.assertEqual(self.edit_code().returncode, 0)
+        text = wf("planning").replace("branch: main",
+                                      "branch: main\nforce: true")
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
+        self.assertEqual(self.edit_code().returncode, 0)
+
+    def test_artifacts_dir_override(self):
+        self.repo.write(".flow.md", "artifacts-dir: docs/work\n")
+        text = wf("planning")
+        self.repo.write("docs/work/2026-07-05-demo/workflow.md", text)
+        self.assertEqual(self.edit_code().returncode, 2)
+
 if __name__ == "__main__":
     unittest.main()

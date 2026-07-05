@@ -123,7 +123,35 @@ def check_state_machine(payload, target):
     return 0
 
 
-def check_lockdown(target, root, adir):  # completed in Task 5
+def current_branch(root):
+    # `branch --show-current` (not `rev-parse --abbrev-ref HEAD`): it works on
+    # an unborn branch (fresh repo, no commits), where rev-parse exits 128.
+    try:
+        r = subprocess.run(["git", "-C", str(root), "branch", "--show-current"],
+                           capture_output=True, text=True, timeout=5)
+        return r.stdout.strip() or None if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def check_lockdown(target, root, adir):
+    if not adir.is_dir():
+        return 0
+    branch = current_branch(root)
+    if branch is None:
+        return 0
+    for wf_file in adir.glob("*/workflow.md"):
+        fm = parse_frontmatter(wf_file.read_text())
+        if (fm.get("branch") != branch or fm.get("force") == "true"
+                or fm.get("phase") not in LOCKED_PHASES):
+            continue
+        task_dir = wf_file.parent.resolve()
+        if task_dir in target.parents or target == (root / ".flow.md").resolve():
+            continue
+        gate = "2 (pre-merge)" if fm.get("phase") == "reporting" else "1 (plan approval)"
+        return block(f"task '{fm.get('task', task_dir.name)}' is in phase "
+                     f"'{fm.get('phase')}' — code edits are locked until gate "
+                     f"{gate} is recorded in {wf_file}")
     return 0
 
 

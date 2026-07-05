@@ -74,6 +74,9 @@ flow/
 │   ├── flow-researcher.md   # read-only breadth scout
 │   ├── flow-plan-critic.md  # read-only rubric-driven plan attacker
 │   └── flow-reviewer.md     # read-only diff-vs-plan reviewer
+├── hooks/
+│   ├── hooks.json           # hook registrations (PostToolUse, PreToolUse)
+│   └── flow-validate        # state-machine validator + edit lockdown script
 ├── templates/               # workflow.md, plan.md, report.md skeletons
 └── docs/specs/              # this document
 ```
@@ -227,6 +230,39 @@ agents. Writer and critic stay separate; the writer stays visible.
 - Because state is written before transitions, the worst case after a crash is repeating part
   of one phase — never losing a gate decision or completed work.
 
+## Deterministic enforcement (v1 hooks)
+
+The state machine and both gates are enforced by the harness via hooks, not by skill wording.
+Both hooks are served by one script, `hooks/flow-validate`, shipped and registered by the
+plugin.
+
+**State-machine validation — PostToolUse on writes to `**/workflow.md`.** The script parses
+the new frontmatter and rejects the write (exit 2 — the edit is blocked and the error returned
+to the model) when:
+
+- the `phase:` value is not in the legal enum;
+- the transition skips a phase for the recorded `mode` (full/lite have different legal chains);
+- a transition **past a gate** (plan-review → implementation, reporting → wind-down) has no
+  matching dated entry in the decision log.
+
+A skipped phase or unapproved gate is therefore impossible to *record*, not merely visible.
+
+**Edit lockdown — PreToolUse on Edit/Write.** When the active task's recorded phase is
+setup / research / planning / plan-review, edits to files **outside the task folder** (and
+`.flow.md`) are blocked with "gate 1 not passed — code edits locked". The same rule blocks
+edits while phase is `reporting` (gate 2 pending). This mechanically enforces what the gates
+are for: no implementation before plan approval.
+
+**Escape hatch (required):** `flow-validate` honors a documented manual override (e.g.
+`FLOW_FORCE=1` on the invoking command or a `force: true` line the user adds to
+`workflow.md` frontmatter by hand) so a validator bug can never wedge legitimate work. The
+override is for the user, not for skills — no flow skill may instruct its use.
+
+**Trust model:** hooks check state the model itself writes; they defend against drift and
+sloppiness (the realistic failure mode), not adversarial forgery — the same trust model as CI.
+Verify-stamp enforcement (phase advance requires a fresh passing verify run recorded against
+current HEAD) is deliberately deferred to v2.
+
 ## Guardrails (baked into skill wording)
 
 - Reviewer and critic: "flag only correctness/requirement gaps" — no nitpicks, no manufactured
@@ -248,18 +284,23 @@ agents. Writer and critic stay separate; the writer stays visible.
 ## Out of scope (v1)
 
 - Linear/ticket automation (manual).
-- Hooks-based hard enforcement (a Stop-hook gate on verify commands is a natural v2).
+- Verify-stamp enforcement and Stop-hook gates on verify commands (natural v2 extensions of
+  `flow-validate`; the two v1 hooks above are in scope).
 - Dynamic-workflow/ultracode integration.
 - Multi-machine sync beyond git.
 
 ## Risks
 
-- **Driver drift** — skills are advisory, not enforced; the driver could skip a phase. Mitigated
-  by `workflow.md` being the single routing input (a skipped phase is visible as a wrong `phase`
-  value) and by the shakedown tasks.
+- **Driver drift** — skills are advisory; the driver could skip a phase. Mitigated
+  mechanically: the PostToolUse validator makes illegal transitions and unapproved gate
+  crossings impossible to record, and the PreToolUse lockdown blocks pre-approval code edits.
 - **State/reality divergence** — if a session edits code without updating `workflow.md`, resume
-  misroutes. Mitigated by the write-before-transition rule and setup's baseline checks; worst
-  case the user corrects `phase:` by hand (it's one line of markdown).
+  misroutes. Pre-approval divergence is blocked by the edit lockdown; during implementation it
+  remains advisory (write-before-transition rule). Worst case the user corrects `phase:` by
+  hand (it's one line of markdown).
+- **Validator bug blocks legitimate work** — a buggy `flow-validate` could reject valid
+  transitions or edits. Mitigated by the documented user-only escape hatch and by keeping the
+  script small and covered by its own tests.
 - **Ceremony creep** — the same failure that killed Spec Kit for solo devs. Mitigated by lite
   mode, the plan-length guardrail, and single-pass critics/reviewers.
 - **Two workflow plugins installed** (flow + superpowers) both wanting to drive. Mitigated:

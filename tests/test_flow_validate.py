@@ -129,5 +129,20 @@ class TestStateMachine(unittest.TestCase):
                      self.repo.dir)
         self.assertEqual(r.returncode, 2)
 
+    def test_mode_switch_cannot_skip_ahead(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("research"))
+        r = self.attempt(wf("wind-down", mode="lite",
+                            log="- 2026-07-05 gate 2: merge approved"))
+        self.assertEqual(r.returncode, 2)
+
+    def test_mode_switch_one_step_allowed(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("research"))
+        self.assertEqual(self.attempt(wf("planning", mode="lite")).returncode, 0)
+
+    def test_force_in_existing_file_allows(self):
+        text = wf("setup").replace("branch: main", "branch: main\nforce: true")
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
+        self.assertEqual(self.attempt(wf("reporting")).returncode, 0)
+
 if __name__ == "__main__":
     unittest.main()

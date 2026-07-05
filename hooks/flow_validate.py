@@ -76,6 +76,21 @@ def block(msg):
     return 2
 
 
+def effective_index(cur_phase, cur_mode, chain):
+    """Index of cur_phase in the target chain; on a mode switch where
+    cur_phase is absent, the index of its nearest predecessor (walking
+    backward in the old chain) that the target chain shares."""
+    if cur_phase in chain:
+        return chain.index(cur_phase)
+    old_chain = CHAINS.get(cur_mode, [])
+    if cur_phase not in old_chain:
+        return None  # unknown current phase; skip-guard cannot apply
+    for p in reversed(old_chain[:old_chain.index(cur_phase)]):
+        if p in chain:
+            return chain.index(p)
+    return None
+
+
 def check_state_machine(payload, target):
     current_text = target.read_text() if target.is_file() else ""
     proposed_text = simulate(payload["tool_name"], payload["tool_input"],
@@ -96,9 +111,10 @@ def check_state_machine(payload, target):
             return block("a new workflow.md must start at phase: setup")
         return 0
     cur_phase = cur.get("phase")
-    if cur_phase in chain and chain.index(new_phase) > chain.index(cur_phase) + 1:
+    cur_idx = effective_index(cur_phase, cur.get("mode", "full"), chain)
+    if cur_idx is not None and chain.index(new_phase) > cur_idx + 1:
         return block(f"cannot skip from '{cur_phase}' to '{new_phase}' "
-                     f"(next is '{chain[chain.index(cur_phase) + 1]}')")
+                     f"(next is '{chain[cur_idx + 1]}')")
     gate = GATES.get(new_phase)
     if gate and new_phase != cur_phase and gate not in proposed_text:
         n = "1 (plan approval)" if gate == "gate 1:" else "2 (merge approval)"

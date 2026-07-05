@@ -46,5 +46,88 @@ class TestNoOpPaths(unittest.TestCase):
                            capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 0)
 
+WF = """---
+task: demo
+title: Demo
+ticket:
+mode: {mode}
+phase: {phase}
+branch: main
+worktree:
+created: 2026-07-05
+updated: 2026-07-05
+---
+
+## Decision log
+{log}
+"""
+
+def wf(phase, mode="full", log=""):
+    return WF.format(phase=phase, mode=mode, log=log)
+
+class TestStateMachine(unittest.TestCase):
+    def setUp(self):
+        self.repo = Repo()
+        self.wf_path = self.repo.dir / "docs/tasks/2026-07-05-demo/workflow.md"
+
+    def attempt(self, new_text):
+        return run_hook(payload("Write", self.wf_path, content=new_text),
+                        self.repo.dir)
+
+    def test_new_file_must_start_at_setup(self):
+        self.assertEqual(self.attempt(wf("setup")).returncode, 0)
+        r = self.attempt(wf("implementation"))
+        self.assertEqual(r.returncode, 2)
+
+    def test_one_step_forward_allowed(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("setup"))
+        self.assertEqual(self.attempt(wf("research")).returncode, 0)
+
+    def test_skip_blocked_in_full_allowed_in_lite(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("setup"))
+        self.assertEqual(self.attempt(wf("planning")).returncode, 2)
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md",
+                        wf("setup", mode="lite"))
+        self.assertEqual(self.attempt(wf("planning", mode="lite")).returncode, 0)
+
+    def test_backward_allowed(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md",
+                        wf("implementation", log="- 2026-07-05 gate 1: plan approved"))
+        self.assertEqual(self.attempt(wf("planning")).returncode, 0)
+
+    def test_gate1_required_for_implementation(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("plan-review"))
+        self.assertEqual(self.attempt(wf("implementation")).returncode, 2)
+        ok = wf("implementation", log="- 2026-07-05 gate 1: plan approved by user")
+        self.assertEqual(self.attempt(ok).returncode, 0)
+
+    def test_gate2_required_for_wind_down(self):
+        base_log = "- 2026-07-05 gate 1: plan approved"
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md",
+                        wf("reporting", log=base_log))
+        self.assertEqual(self.attempt(wf("wind-down", log=base_log)).returncode, 2)
+        ok = wf("wind-down", log=base_log + "\n- 2026-07-05 gate 2: merge approved")
+        self.assertEqual(self.attempt(ok).returncode, 0)
+
+    def test_invalid_phase_blocked(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("setup"))
+        self.assertEqual(self.attempt(wf("shipping")).returncode, 2)
+
+    def test_force_true_allows_anything(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("setup"))
+        forced = wf("reporting").replace("branch: main", "branch: main\nforce: true")
+        self.assertEqual(self.attempt(forced).returncode, 0)
+
+    def test_edit_tool_simulated(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("setup"))
+        r = run_hook(payload("Edit", self.wf_path,
+                             old="phase: setup", new="phase: research"),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 0)
+        r = run_hook(payload("Edit", self.wf_path,
+                             old="phase: setup", new="phase: code-review"),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+
 if __name__ == "__main__":
     unittest.main()

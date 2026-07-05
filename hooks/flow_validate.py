@@ -71,7 +71,39 @@ def main():
     return check_lockdown(target, root, adir)
 
 
-def check_state_machine(payload, target):  # completed in Task 4
+def block(msg):
+    print(f"flow: {msg}", file=sys.stderr)
+    return 2
+
+
+def check_state_machine(payload, target):
+    current_text = target.read_text() if target.is_file() else ""
+    proposed_text = simulate(payload["tool_name"], payload["tool_input"],
+                             current_text)
+    cur, new = parse_frontmatter(current_text), parse_frontmatter(proposed_text)
+    if cur.get("force") == "true" or new.get("force") == "true":
+        return 0
+    mode = new.get("mode", cur.get("mode", "full"))
+    chain = CHAINS.get(mode)
+    if chain is None:
+        return block(f"unknown mode '{mode}' (expected full|lite)")
+    new_phase = new.get("phase")
+    if new_phase not in chain:
+        return block(f"illegal phase '{new_phase}' for mode {mode}; "
+                     f"legal: {', '.join(chain)}")
+    if not current_text:
+        if new_phase != "setup":
+            return block("a new workflow.md must start at phase: setup")
+        return 0
+    cur_phase = cur.get("phase")
+    if cur_phase in chain and chain.index(new_phase) > chain.index(cur_phase) + 1:
+        return block(f"cannot skip from '{cur_phase}' to '{new_phase}' "
+                     f"(next is '{chain[chain.index(cur_phase) + 1]}')")
+    gate = GATES.get(new_phase)
+    if gate and new_phase != cur_phase and gate not in proposed_text:
+        n = "1 (plan approval)" if gate == "gate 1:" else "2 (merge approval)"
+        return block(f"entering '{new_phase}' requires a decision-log entry "
+                     f"containing '{gate}' — gate {n} has not been recorded")
     return 0
 
 

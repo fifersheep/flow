@@ -1,0 +1,18 @@
+# flow
+
+Personal phased development workflow for Claude Code:
+setup → research → plan → **gate 1** → implement → review-vs-plan → **gate 2** → wind-down.
+
+- State: `docs/tasks/<date>-<slug>/workflow.md` in the target repo (resumable from any session).
+- Gates enforced by a PreToolUse hook (`hooks/flow_validate.py`) — illegal phase
+  transitions and pre-approval code edits are blocked, not discouraged.
+- Escape hatch (user-only): add `force: true` to a task's workflow.md frontmatter.
+- Per-repo config: `.flow.md` (see `templates/flow-config-example.md`).
+- Spec: `docs/specs/2026-07-04-flow-workflow-design.md`.
+
+Install:
+    /plugin marketplace add /Users/scoot/dev/flow
+    /plugin install flow@flow
+
+Usage: `/flow <task description>` to start; `/flow` to resume; `/flow status` to list.
+Tests: `python3 -m unittest discover tests -v`

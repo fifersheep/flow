@@ -11,7 +11,7 @@ You route; phase skills do the work. Never perform a phase's work inline here.
 
 1. Artifacts dir: `artifacts-dir:` from `.flow.md` at the repo root, else `docs/tasks`.
 2. Active tasks: every `<artifacts-dir>/*/workflow.md` with `phase` ≠ `complete`.
-3. Current branch: `git rev-parse --abbrev-ref HEAD`.
+3. Current branch: `git branch --show-current`.
 
 ## Route
 

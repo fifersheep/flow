@@ -1,4 +1,4 @@
-import json, os, subprocess, tempfile, unittest
+import json, os, shutil, subprocess, tempfile, unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "hooks" / "flow_validate.py"
@@ -26,9 +26,15 @@ class Repo:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
         return p
+    def destroy(self):
+        subprocess.run(["git", "-C", str(self.dir), "worktree", "prune"],
+                       capture_output=True)
+        shutil.rmtree(self.dir, ignore_errors=True)
 
 class TestNoOpPaths(unittest.TestCase):
-    def setUp(self): self.repo = Repo()
+    def setUp(self):
+        self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
 
     def test_non_edit_tool_allowed(self):
         r = run_hook({"hook_event_name": "PreToolUse", "tool_name": "Bash",
@@ -68,6 +74,7 @@ def wf(phase, mode="full", log=""):
 class TestStateMachine(unittest.TestCase):
     def setUp(self):
         self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
         self.wf_path = self.repo.dir / "docs/tasks/2026-07-05-demo/workflow.md"
 
     def attempt(self, new_text):
@@ -147,6 +154,7 @@ class TestStateMachine(unittest.TestCase):
 class TestLockdown(unittest.TestCase):
     def setUp(self):
         self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
 
     def activate(self, phase, branch="main", mode="full"):
         text = wf(phase, mode=mode).replace("branch: main", f"branch: {branch}")
@@ -194,6 +202,67 @@ class TestLockdown(unittest.TestCase):
         text = wf("planning")
         self.repo.write("docs/work/2026-07-05-demo/workflow.md", text)
         self.assertEqual(self.edit_code().returncode, 2)
+
+
+class TestTemplateGate(unittest.TestCase):
+    """The shipped template's example comment must not satisfy gate 1."""
+    def test_shipped_template_does_not_satisfy_gate1(self):
+        repo = Repo()
+        self.addCleanup(repo.destroy)
+        tpl = (Path(__file__).resolve().parent.parent
+               / "templates" / "workflow.md").read_text()
+        filled = (tpl.replace("{{slug}}", "demo")
+                  .replace("{{one-line title}}", "Demo")
+                  .replace("{{ticket-or-blank}}", "")
+                  .replace("{{full-or-lite}}", "lite")
+                  .replace("{{branch}}", "main")
+                  .replace("{{worktree-path-or-blank}}", "")
+                  .replace("{{YYYY-MM-DD}}", "2026-07-05")
+                  .replace("phase: setup", "phase: plan-review"))
+        wf_path = repo.dir / "docs/tasks/2026-07-05-demo/workflow.md"
+        repo.write("docs/tasks/2026-07-05-demo/workflow.md", filled)
+        attempt = filled.replace("phase: plan-review", "phase: implementation")
+        r = run_hook(payload("Write", wf_path, content=attempt), repo.dir)
+        self.assertEqual(r.returncode, 2)
+        approved = attempt.replace(
+            "## Decision log",
+            "## Decision log\n- 2026-07-05 gate 1: plan approved by user")
+        r = run_hook(payload("Write", wf_path, content=approved), repo.dir)
+        self.assertEqual(r.returncode, 0)
+
+
+class TestWorktreeRoot(unittest.TestCase):
+    """Validator must enforce inside a git worktree when CLAUDE_PROJECT_DIR
+    points at the main checkout."""
+    def setUp(self):
+        self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
+        self.repo.write("seed.txt", "x")
+        for cmd in (["add", "."],
+                    ["-c", "user.email=t@t", "-c", "user.name=t",
+                     "commit", "-m", "seed"]):
+            subprocess.run(["git", "-C", str(self.repo.dir)] + cmd,
+                           capture_output=True, check=True)
+        self.wt = self.repo.dir / ".worktrees" / "flow-demo"
+        subprocess.run(["git", "-C", str(self.repo.dir), "worktree", "add",
+                        "-b", "flow/demo", str(self.wt)],
+                       capture_output=True, check=True)
+        text = wf("planning").replace("branch: main", "branch: flow/demo")
+        p = self.wt / "docs" / "tasks" / "2026-07-05-demo" / "workflow.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+
+    def test_lockdown_applies_inside_worktree(self):
+        r = run_hook(payload("Write", self.wt / "src" / "a.py", content="x"),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+
+    def test_state_machine_applies_inside_worktree(self):
+        p = self.wt / "docs" / "tasks" / "2026-07-05-demo" / "workflow.md"
+        skip = wf("implementation").replace("branch: main", "branch: flow/demo")
+        r = run_hook(payload("Write", p, content=skip), self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

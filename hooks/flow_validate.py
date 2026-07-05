@@ -46,6 +46,17 @@ def simulate(tool_name, tool_input, current_text):
 
 
 def find_project_root(payload):
+    """Nearest ancestor of the target file that looks like a checkout root
+    (contains .git — a dir, or a file in worktrees — or .flow.md). Falls
+    back to CLAUDE_PROJECT_DIR / cwd, so worktree checkouts get their own
+    root instead of the session's launch directory."""
+    try:
+        target = Path(payload["tool_input"]["file_path"]).resolve()
+        for parent in target.parents:
+            if (parent / ".git").exists() or (parent / ".flow.md").is_file():
+                return parent
+    except Exception:
+        pass
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
     return Path(root)
 
@@ -116,10 +127,14 @@ def check_state_machine(payload, target):
         return block(f"cannot skip from '{cur_phase}' to '{new_phase}' "
                      f"(next is '{chain[cur_idx + 1]}')")
     gate = GATES.get(new_phase)
-    if gate and new_phase != cur_phase and gate not in proposed_text:
-        n = "1 (plan approval)" if gate == "gate 1:" else "2 (merge approval)"
-        return block(f"entering '{new_phase}' requires a decision-log entry "
-                     f"containing '{gate}' — gate {n} has not been recorded")
+    if gate and new_phase != cur_phase:
+        entry = re.compile(r"^\s*-\s+\d{4}-\d{2}-\d{2}\s+.*" + re.escape(gate),
+                           re.MULTILINE)
+        if not entry.search(proposed_text):
+            n = "1 (plan approval)" if gate == "gate 1:" else "2 (merge approval)"
+            return block(f"entering '{new_phase}' requires a decision-log entry "
+                         f"like '- YYYY-MM-DD {gate} ... approved by user' — "
+                         f"gate {n} has not been recorded")
     return 0
 
 
@@ -148,7 +163,7 @@ def check_lockdown(target, root, adir):
         task_dir = wf_file.parent.resolve()
         if task_dir in target.parents or target == (root / ".flow.md").resolve():
             continue
-        gate = "2 (pre-merge)" if fm.get("phase") == "reporting" else "1 (plan approval)"
+        gate = "2 (merge approval)" if fm.get("phase") == "reporting" else "1 (plan approval)"
         return block(f"task '{fm.get('task', task_dir.name)}' is in phase "
                      f"'{fm.get('phase')}' — code edits are locked until gate "
                      f"{gate} is recorded in {wf_file}")

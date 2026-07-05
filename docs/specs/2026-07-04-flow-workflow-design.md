@@ -75,7 +75,7 @@ flow/
 │   ├── flow-plan-critic.md  # read-only rubric-driven plan attacker
 │   └── flow-reviewer.md     # read-only diff-vs-plan reviewer
 ├── hooks/
-│   ├── hooks.json           # hook registrations (PostToolUse, PreToolUse)
+│   ├── hooks.json           # hook registrations (PreToolUse)
 │   └── flow-validate        # state-machine validator + edit lockdown script
 ├── templates/               # workflow.md, plan.md, report.md skeletons
 └── docs/specs/              # this document
@@ -236,9 +236,10 @@ The state machine and both gates are enforced by the harness via hooks, not by s
 Both hooks are served by one script, `hooks/flow-validate`, shipped and registered by the
 plugin.
 
-**State-machine validation — PostToolUse on writes to `**/workflow.md`.** The script parses
-the new frontmatter and rejects the write (exit 2 — the edit is blocked and the error returned
-to the model) when:
+**State-machine validation — PreToolUse on writes to `**/workflow.md`.** (PreToolUse, not
+PostToolUse: only PreToolUse can deny a write before the file changes.) The script simulates
+the proposed Write/Edit, parses the resulting frontmatter, and rejects the write (exit 2 —
+the edit is blocked and the error returned to the model) when:
 
 - the `phase:` value is not in the legal enum;
 - the transition skips a phase for the recorded `mode` (full/lite have different legal chains);
@@ -292,8 +293,8 @@ current HEAD) is deliberately deferred to v2.
 ## Risks
 
 - **Driver drift** — skills are advisory; the driver could skip a phase. Mitigated
-  mechanically: the PostToolUse validator makes illegal transitions and unapproved gate
-  crossings impossible to record, and the PreToolUse lockdown blocks pre-approval code edits.
+  mechanically: the PreToolUse validator makes illegal transitions and unapproved gate
+  crossings impossible to record, and the edit lockdown blocks pre-approval code edits.
 - **State/reality divergence** — if a session edits code without updating `workflow.md`, resume
   misroutes. Pre-approval divergence is blocked by the edit lockdown; during implementation it
   remains advisory (write-before-transition rule). Worst case the user corrects `phase:` by

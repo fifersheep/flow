@@ -6,7 +6,9 @@ description: Flow phase 5 (implementation). Normally invoked via /flow. Executes
 # Flow — implement
 
 Before the first task: copy plan.md's task list into workflow.md `## Progress`
-as unchecked boxes (one per plan task), if not already there.
+as unchecked boxes (one per plan task), if not already there — replace the
+template's placeholder comment under the EXISTING heading; never add a second
+`## Progress`.
 
 Per plan task, in order:
 1. Implement exactly what the task says. TDD where the task has testable

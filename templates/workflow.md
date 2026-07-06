@@ -17,7 +17,7 @@ Run environment checks, then advance to the first working phase.
 <!-- gate entries look like: "- 2026-07-05 gate 1: plan approved by user" -->
 
 ## Progress
-<!-- one checkbox per plan task once plan.md exists -->
+<!-- replace this comment with one checkbox per plan task; keep this heading (never add a second ## Progress) -->
 
 ## Deviations
 <!-- record at the moment they happen, never reconstructed later -->

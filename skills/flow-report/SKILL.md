@@ -17,7 +17,12 @@ description: Flow phase 7 (reporting, full mode). Normally invoked via /flow. Wr
    evidence, links to the task folder artifacts.
 3. **Gate 2.** Present to the user: report.md path, PR link, one-paragraph
    summary. Ask approve-merge / request-changes (AskUserQuestion). Changes →
-   make them, update report evidence, ask again.
+   step the phase BACKWARD to `implementation` (a backward transition is
+   always legal; the `reporting` lockdown blocks code edits by design —
+   never work around it), make the change, re-verify, come forward through
+   `code-review` (the prior reviewer pass stands for small visual/constant
+   tweaks; re-dispatch only if logic changed), update report evidence, push,
+   ask again. Iterate as many times as the user needs.
 4. **On approval** (never before): append
    `- YYYY-MM-DD gate 2: merge approved by user`, set `phase: wind-down`,
    update `updated` + `Next action`, announce, invoke the `flow-wrap` skill.

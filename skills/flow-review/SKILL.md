@@ -18,7 +18,10 @@ description: Flow phase 6 (code review). Normally invoked via /flow. Dispatches 
 4. **Re-verify:** project `verify` command must pass. Then **outcome
    verification**: run `verify-app` if configured, else drive the changed
    behavior by hand (run the app, exercise the feature) — green units alone
-   don't count. Capture real output/screenshots for the report.
+   don't count. Capture real output/screenshots for the report — and LOOK
+   at them: open every produced artifact (screenshot, page, file) and
+   confirm it shows what it claims. An exit code is not evidence; a
+   screenshot harness can exit 0 while capturing blank frames.
 5. **Advance.** Update `updated` + `Next action`. Full mode: set
    `phase: reporting`, announce, invoke the `flow-report` skill. Lite mode:
    stay in `code-review` and invoke the `flow-wrap` skill (it owns gate 2).

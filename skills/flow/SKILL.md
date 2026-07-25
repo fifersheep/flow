@@ -25,6 +25,9 @@ You route; phase skills do the work. Never perform a phase's work inline here.
   task's branch ≠ current branch, tell the user to switch branch/worktree
   first — do not switch for them.
 - **`/flow status`**: print the list; route nowhere.
+- **`/flow shape <idea>`**: invoke the `flow-shape` skill with the idea as
+  argument. Shaping is not a phase — no workflow.md, no branch; it produces
+  tracker tickets that later become `/flow start` tasks.
 
 | phase          | skill          |
 |----------------|----------------|

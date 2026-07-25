@@ -14,5 +14,7 @@ Install:
     /plugin marketplace add /Users/scoot/dev/flow
     /plugin install flow@flow
 
-Usage: `/flow <task description>` to start; `/flow` to resume; `/flow status` to list.
+Usage: `/flow <task description>` to start; `/flow` to resume; `/flow status` to list;
+`/flow shape <idea>` to brainstorm an idea into tracker tickets (upstream of the
+workflow — no branch, no state file; ends by offering `/flow start`).
 Tests: `python3 -m unittest discover tests -v`

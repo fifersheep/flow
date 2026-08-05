@@ -22,6 +22,9 @@ CHAINS = {
 GATES = {"implementation": "gate 1:", "wind-down": "gate 2:"}
 LOCKED_PHASES = {"setup", "research", "planning", "plan-review", "reporting"}
 DEFAULT_ARTIFACTS_DIR = "docs/tasks"
+COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+ASSUMPTIONS_RE = re.compile(r"^##\s+Assumptions\b[^\n]*\n(.*?)(?=^##\s|\Z)",
+                            re.MULTILINE | re.DOTALL)
 
 
 def parse_frontmatter(text):
@@ -135,6 +138,33 @@ def check_state_machine(payload, target):
             return block(f"entering '{new_phase}' requires a decision-log entry "
                          f"like '- YYYY-MM-DD {gate} ... approved by user' — "
                          f"gate {n} has not been recorded")
+    if new_phase == "implementation" and new_phase != cur_phase:
+        rc = check_plan_assumptions(target.parent)
+        if rc:
+            return rc
+    return 0
+
+
+def check_plan_assumptions(task_dir):
+    """Gate 1 records that a plan was approved; this checks the plan admits
+    what it guessed. plan.md must carry an Assumptions section with at least
+    one real entry — commented examples and unfilled {{placeholders}} don't
+    count. A plan with genuinely nothing to declare writes '- none — <reason>'
+    and passes: the bar is an explicit statement, not a silent omission."""
+    plan = task_dir / "plan.md"
+    if not plan.is_file():
+        return block(f"entering 'implementation' requires a plan at {plan} — "
+                     f"gate 1 approves a plan, so one must exist")
+    m = ASSUMPTIONS_RE.search(COMMENT_RE.sub("", plan.read_text()))
+    entries = [ln for ln in (m.group(1).splitlines() if m else [])
+               if ln.lstrip().startswith("-") and "{{" not in ln
+               and ln.strip() != "-"]
+    if not entries:
+        return block(
+            "entering 'implementation' requires an '## Assumptions & open "
+            f"questions' section in {plan} carrying at least one entry — mark "
+            "each [answered YYYY-MM-DD] / [assumed] / [open — owner], or write "
+            "'- none — <reason>' if the plan truly made no judgment calls")
     return 0
 
 

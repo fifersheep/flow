@@ -45,6 +45,8 @@ Then set `phase: plan-review`, update `Next action`.
    `phase: implementation`, update `updated` + `Next action`, announce, and
    invoke the `flow-implement` skill.
 
-The validator blocks `phase: implementation` without the gate-1 line, and
-blocks all code edits until then. If blocked, you skipped a step — fix the
-process, never the guardrail.
+The validator blocks `phase: implementation` without the gate-1 line and
+without a filled Assumptions section in plan.md, and blocks all code edits
+until then. A plan that genuinely made no judgment calls writes
+`- none — <reason>`; an empty section is not a way out. If blocked, you
+skipped a step — fix the process, never the guardrail.

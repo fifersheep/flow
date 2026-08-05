@@ -10,6 +10,14 @@
 ## Approach
 {{chosen approach; alternatives considered, one line each}}
 
+## Assumptions & open questions
+<!-- every entry carries a marker:
+     [answered YYYY-MM-DD]  user decided this — mirrored in workflow.md's decision log
+     [assumed]              taken as repo default; cite the evidence (file:line)
+     [open — <owner>]       deliberately unresolved; name who resolves it and when
+     Empty only if the task genuinely required zero judgment calls. -->
+- {{marker}} {{assumption}} — {{evidence or rationale}}
+
 ## Tasks
 <!-- file-level; each task lists files touched + its verification step.
      Guardrail: if this section grows longer than the expected diff, stop and cut. -->

@@ -18,8 +18,16 @@ description: Flow phase 2 (research). Normally invoked via /flow. Codebase recon
    stranded in their own context.
 3. **Write `research.md`** in the task folder: Findings (with file:line),
    Constraints & prior art, Open questions. Dense; no pasted file bodies.
-4. **Surface open questions** that change the plan's shape to the user now —
-   cheaper than a rejected plan at gate 1.
+4. **Triage the unknowns, then ask.** Sort every open question: code-resolvable
+   → go read the code, never ask; conventional default → record it, don't ask;
+   deferred or tunable → record it with an owner; **shape-changing intent** →
+   ask now. Only that last class interrupts the user: ONE AskUserQuestion
+   round, ≤4 questions, recommended option first and marked. Write each answer
+   to the workflow.md decision log immediately. Everything you recorded rather
+   than asked carries into plan.md's Assumptions section — silently guessing
+   is the failure this step exists to prevent.
+   Guard: more than 3 shape-changing questions means the task was never shaped.
+   Stop and route the user to `/flow shape` instead of planning a guess.
 5. **Advance.** Update `updated` + `Next action`, set `phase: planning`,
    announce (reference research.md by path), invoke the `flow-plan` skill.
 

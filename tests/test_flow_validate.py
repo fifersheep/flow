@@ -71,6 +71,12 @@ updated: 2026-07-05
 def wf(phase, mode="full", log=""):
     return WF.format(phase=phase, mode=mode, log=log)
 
+PLAN = """# Plan — Demo
+
+## Assumptions & open questions
+- [assumed] the demo path is stable — src/a.py:1
+"""
+
 class TestStateMachine(unittest.TestCase):
     def setUp(self):
         self.repo = Repo()
@@ -104,6 +110,7 @@ class TestStateMachine(unittest.TestCase):
 
     def test_gate1_required_for_implementation(self):
         self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("plan-review"))
+        self.repo.write("docs/tasks/2026-07-05-demo/plan.md", PLAN)
         self.assertEqual(self.attempt(wf("implementation")).returncode, 2)
         ok = wf("implementation", log="- 2026-07-05 gate 1: plan approved by user")
         self.assertEqual(self.attempt(ok).returncode, 0)
@@ -221,6 +228,7 @@ class TestTemplateGate(unittest.TestCase):
                   .replace("phase: setup", "phase: plan-review"))
         wf_path = repo.dir / "docs/tasks/2026-07-05-demo/workflow.md"
         repo.write("docs/tasks/2026-07-05-demo/workflow.md", filled)
+        repo.write("docs/tasks/2026-07-05-demo/plan.md", PLAN)
         attempt = filled.replace("phase: plan-review", "phase: implementation")
         r = run_hook(payload("Write", wf_path, content=attempt), repo.dir)
         self.assertEqual(r.returncode, 2)
@@ -229,6 +237,71 @@ class TestTemplateGate(unittest.TestCase):
             "## Decision log\n- 2026-07-05 gate 1: plan approved by user")
         r = run_hook(payload("Write", wf_path, content=approved), repo.dir)
         self.assertEqual(r.returncode, 0)
+
+
+class TestPlanAssumptions(unittest.TestCase):
+    """Entering implementation requires plan.md to declare its judgment calls."""
+    def setUp(self):
+        self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
+        self.wf_path = self.repo.dir / "docs/tasks/2026-07-05-demo/workflow.md"
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", wf("plan-review"))
+        self.approved = wf("implementation",
+                           log="- 2026-07-05 gate 1: plan approved by user")
+
+    def attempt(self, plan=None, wf_text=None):
+        if plan is not None:
+            self.repo.write("docs/tasks/2026-07-05-demo/plan.md", plan)
+        return run_hook(payload("Write", self.wf_path,
+                                content=wf_text or self.approved),
+                        self.repo.dir).returncode
+
+    def test_missing_plan_blocked(self):
+        self.assertEqual(self.attempt(), 2)
+
+    def test_missing_section_blocked(self):
+        self.assertEqual(self.attempt("# Plan — Demo\n\n## Approach\nx\n"), 2)
+
+    def test_placeholder_entry_blocked(self):
+        self.assertEqual(self.attempt(
+            "## Assumptions & open questions\n"
+            "- {{marker}} {{assumption}} — {{evidence or rationale}}\n"), 2)
+
+    def test_commented_entry_blocked(self):
+        self.assertEqual(self.attempt(
+            "## Assumptions & open questions\n"
+            "<!-- - [assumed] example that must not count -->\n"), 2)
+
+    def test_shipped_template_does_not_satisfy(self):
+        tpl = (Path(__file__).resolve().parent.parent
+               / "templates" / "plan.md").read_text()
+        self.assertEqual(self.attempt(tpl), 2)
+
+    def test_section_ends_at_next_heading(self):
+        # entries under ## Tasks must not be mistaken for assumptions
+        self.assertEqual(self.attempt(
+            "## Assumptions & open questions\n\n"
+            "## Tasks\n1. do the thing — files: a.py — verify: pytest\n"
+            "- stray bullet under tasks\n"), 2)
+
+    def test_real_entry_allowed(self):
+        self.assertEqual(self.attempt(
+            "## Assumptions & open questions\n"
+            "- [assumed] retry policy applies — config/http.rb:12\n"), 0)
+
+    def test_explicit_none_allowed(self):
+        self.assertEqual(self.attempt(
+            "## Assumptions & open questions\n"
+            "- none — mechanical rename, no judgment calls\n"), 0)
+
+    def test_force_bypasses(self):
+        forced = self.approved.replace("branch: main",
+                                       "branch: main\nforce: true")
+        self.assertEqual(self.attempt(wf_text=forced), 0)
+
+    def test_not_checked_when_already_in_implementation(self):
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", self.approved)
+        self.assertEqual(self.attempt(wf_text=self.approved), 0)
 
 
 class TestWorktreeRoot(unittest.TestCase):

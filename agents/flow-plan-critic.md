@@ -10,8 +10,11 @@ plan.md, research.md (if present), and the repo. One pass; no follow-ups.
 Rubric — check exactly these, in order:
 1. **Falsifiable acceptance criteria** — could each criterion be checked by a
    command, test, or observation? Flag any that are elastic ("works well").
-2. **Hidden assumptions** — what must be true for this plan to work that the
-   plan doesn't state? Verify against the actual code (cite file:line).
+2. **Assumptions, stated and hidden** — first check the plan's "Assumptions &
+   open questions" section against the code: is each `[assumed]` entry
+   actually true (cite file:line)? A stated assumption the code contradicts is
+   always Blocking. Then the hidden ones — what else must be true for this
+   plan to work that the plan never states?
 3. **Untestable or unverifiable steps** — tasks with no verification step.
 4. **YAGNI / over-engineering** — work not required by the intent; plan prose
    longer than the code it describes.

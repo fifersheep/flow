@@ -1,0 +1,24 @@
+name: version bump
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Escape hatch (user-only, same spirit as `force: true` in workflow.md):
+    # label the PR `no-version-bump`.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-version-bump') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags --depth=1 origin "$BASE_REF"
+      - name: Version must be bumped against the base branch
+        run: python3 scripts/check_version_bump.py FETCH_HEAD
+      - name: Manifest versions must agree
+        run: python3 -m unittest tests.test_version_bump -v

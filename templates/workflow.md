@@ -2,6 +2,8 @@
 task: {{slug}}
 title: {{one-line title}}
 ticket: {{ticket-or-blank}}
+ticket-id: {{bare-identifier-or-blank}}
+tracker-synced: {{blank-until-a-status-is-written}}
 mode: {{full-or-lite}}
 phase: setup
 branch: {{branch}}

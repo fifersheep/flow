@@ -14,7 +14,11 @@ description: Flow phase 7 (reporting, full mode). Normally invoked via /flow. Wr
 2. **Open the PR** (`gh pr create` if a remote exists; otherwise present the
    description and note the merge will be local). Description generated from
    the artifact trail: intent (plan.md), approach summary, deviations, test
-   evidence, links to the task folder artifacts.
+   evidence, links to the task folder artifacts. Once it is open, move the
+   ticket to the `pr-open` status per the plugin's `templates/tracker-sync.md`
+   and record `tracker-synced` (skipped silently with no tracker or no
+   `ticket-id`; a failed move is recorded and announced, never fatal). On a
+   gate-2 iteration the ticket is already there — don't re-move it.
 3. **Gate 2.** Present to the user: report.md path, PR link, one-paragraph
    summary. Ask approve-merge / request-changes (AskUserQuestion). Changes →
    step the phase BACKWARD to `implementation` (a backward transition is

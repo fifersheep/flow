@@ -34,8 +34,19 @@ all rides in the original PR. Never open a separate "mark complete" follow-up PR
    commit this, but leave `phase: wind-down` until they actually merge.)
 3. **Merge** per the gate-2 decision (merge PR / local merge to the default
    branch) — the PR now includes the learnings and the completion marker. If the
-   user chose not to merge yet, skip the merge and go to cleanup.
+   user chose not to merge yet, skip the merge and go to cleanup. Once the merge
+   has landed, move the ticket to the `merged` status per the plugin's
+   `templates/tracker-sync.md` and record `tracker-synced`. No merge → no move;
+   the ticket stays where it is.
 4. **Cleanup.** `git status` must be clean; remove the worktree if one was
    created; delete the merged branch if the user agrees; verify nothing
    uncommitted is stranded. The task folder stays forever as the record.
-   Announce completion with the artifact paths.
+5. **Tracker drift check.** With a tracker configured and a merge landed,
+   `tracker-synced` must now equal the `merged` status. Anything else — an
+   earlier sync that failed, a status renamed mid-task — is reported to the
+   user as a one-line "ticket <id> is at <X>, expected <Y> — move it by hand"
+   at wind-down, alongside the artifact paths. This is the last chance to
+   catch it, so never skip it and never silently "fix" it by re-writing
+   `tracker-synced` without a successful move.
+
+Announce completion with the artifact paths and any drift note.

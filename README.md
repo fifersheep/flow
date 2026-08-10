@@ -10,6 +10,11 @@ setup → research → plan → **gate 1** → implement → review-vs-plan → 
   implementation on an unstated guess.
 - Escape hatch (user-only): add `force: true` to a task's workflow.md frontmatter.
 - Per-repo config: `.flow.md` (see `templates/flow-config-example.md`).
+- Optional tracker status sync: with `tracker:` in `.flow.md` and a `ticket-id:`
+  on the task, flow moves the ticket In Progress at setup → In Review when the
+  PR opens → Done on merge, and warns at wind-down if the ticket drifted from
+  where it should be. Off unless configured; a failed move is recorded in
+  Deviations and announced, never fatal. Contract: `templates/tracker-sync.md`.
 - Spec: `docs/specs/2026-07-04-flow-workflow-design.md`.
 
 Install:

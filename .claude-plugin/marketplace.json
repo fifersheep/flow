@@ -2,13 +2,13 @@
   "name": "flow",
   "id": "flow",
   "owner": { "name": "Scott Laing" },
-  "metadata": { "description": "Personal flow workflow plugin", "version": "0.3.0" },
+  "metadata": { "description": "Personal flow workflow plugin", "version": "0.4.0" },
   "plugins": [
     {
       "name": "flow",
       "source": "./",
       "description": "Phased development workflow with gated plan review and pre-merge, file-based resumable state, and hook-enforced gates.",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

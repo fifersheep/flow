@@ -5,14 +5,14 @@ Exit 0 = allow. Exit 2 = block (reason on stderr). Any internal error → allow
 (exit 0): a buggy validator must never wedge unrelated work.
 """
 import json
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-PHASES = ["setup", "research", "planning", "plan-review", "implementation",
-          "code-review", "reporting", "wind-down", "complete"]
+from flow_common import (PHASES, artifacts_dir, find_project_root,
+                         parse_frontmatter)
+
 CHAINS = {
     "full": PHASES,
     "lite": ["setup", "planning", "plan-review", "implementation",
@@ -21,22 +21,9 @@ CHAINS = {
 # phase being entered -> gate line that must exist in the decision log
 GATES = {"implementation": "gate 1:", "wind-down": "gate 2:"}
 LOCKED_PHASES = {"setup", "research", "planning", "plan-review", "reporting"}
-DEFAULT_ARTIFACTS_DIR = "docs/tasks"
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ASSUMPTIONS_RE = re.compile(r"^##\s+Assumptions\b[^\n]*\n(.*?)(?=^##\s|\Z)",
                             re.MULTILINE | re.DOTALL)
-
-
-def parse_frontmatter(text):
-    m = re.match(r"\A---\n(.*?)\n---", text, re.DOTALL)
-    if not m:
-        return {}
-    out = {}
-    for line in m.group(1).splitlines():
-        if ":" in line and not line.lstrip().startswith("#"):
-            k, _, v = line.partition(":")
-            out[k.strip()] = v.strip()
-    return out
 
 
 def simulate(tool_name, tool_input, current_text):
@@ -46,31 +33,6 @@ def simulate(tool_name, tool_input, current_text):
     if tool_input.get("replace_all"):
         return current_text.replace(old, new)
     return current_text.replace(old, new, 1)
-
-
-def find_project_root(payload):
-    """Nearest ancestor of the target file that looks like a checkout root
-    (contains .git — a dir, or a file in worktrees — or .flow.md). Falls
-    back to CLAUDE_PROJECT_DIR / cwd, so worktree checkouts get their own
-    root instead of the session's launch directory."""
-    try:
-        target = Path(payload["tool_input"]["file_path"]).resolve()
-        for parent in target.parents:
-            if (parent / ".git").exists() or (parent / ".flow.md").is_file():
-                return parent
-    except Exception:
-        pass
-    root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()
-    return Path(root)
-
-
-def artifacts_dir(root):
-    cfg = root / ".flow.md"
-    if cfg.is_file():
-        m = re.search(r"^artifacts-dir:\s*(\S+)", cfg.read_text(), re.MULTILINE)
-        if m:
-            return m.group(1)
-    return DEFAULT_ARTIFACTS_DIR
 
 
 def main():

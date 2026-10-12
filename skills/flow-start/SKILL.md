@@ -9,8 +9,10 @@ Argument: a task description, optionally with a ticket ref (e.g. "BEE-93: …").
 
 1. **Read config.** `.flow.md` at repo root: `verify`, `verify-app`,
    `setup` (dependency-install command for fresh checkouts), `artifacts-dir`
-   (default `docs/tasks`), `worktrees`, `domain-agents`, `tracker` and
-   `## tracker-status` (see the plugin's `templates/tracker-sync.md`).
+   (default `docs/tasks`), `worktrees`, `domain-agents`, `tracker`,
+   `## tracker-status` (see the plugin's `templates/tracker-sync.md`) and
+   `## on` (per-phase commands — read only by the `flow_events.py` hook; no
+   skill ever runs them, so never fire one by hand).
    Missing file → defaults; ask for the verify command once and offer to
    save a `.flow.md`.
 2. **Check the ticket.** Parse the leading identifier out of the argument

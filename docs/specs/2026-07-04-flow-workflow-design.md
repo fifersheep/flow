@@ -142,6 +142,23 @@ domain-agents:                                  # zone → implementer agent map
 No `.flow.md` → sensible defaults: artifacts in `docs/tasks/`, plain feature branch, inline
 implementation, verify command discovered from the project (or asked once and offered to save).
 
+An optional `## on` section maps a phase name to a shell command, run once when a task
+**enters** that phase:
+
+```markdown
+## on
+- implementation: osascript -e 'display notification "plan approved"'
+- complete: gh pr view --web
+```
+
+Fired by a PostToolUse hook (`hooks/flow_events.py`) watching phase transitions in
+`workflow.md`, not by the skills — so a skill can't forget to fire one, and a phase written
+twice can't fire one twice. The command runs from the repo root with the task's frontmatter in
+`FLOW_*` environment variables. Side effects only: failures are surfaced and dropped, never
+fatal and never a gate. Worktree-open-in-editor deliberately isn't a flow event — flow creates
+one worktree at setup, but `--worktree`, `EnterWorktree` and agent isolation create others that
+no flow phase covers, so that belongs in a user-level hook.
+
 ## Phases
 
 | # | Phase | Runs | Artifact | Exit |

@@ -15,6 +15,11 @@ setup → research → plan → **gate 1** → implement → review-vs-plan → 
   PR opens → Done on merge, and warns at wind-down if the ticket drifted from
   where it should be. Off unless configured; a failed move is recorded in
   Deviations and announced, never fatal. Contract: `templates/tracker-sync.md`.
+- Optional per-phase hooks: an `## on` section in `.flow.md` maps a phase name
+  to a shell command, run once when a task enters that phase (PostToolUse hook,
+  `hooks/flow_events.py`). Side effects only — a failure is reported and
+  dropped, never fatal, never a gate. `.flow.md` is checked in, so its commands
+  run for anyone who runs flow in that repo.
 - Spec: `docs/specs/2026-07-04-flow-workflow-design.md`.
 
 Install:

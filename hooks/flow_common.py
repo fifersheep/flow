@@ -12,6 +12,13 @@ from pathlib import Path
 DEFAULT_ARTIFACTS_DIR = "docs/tasks"
 PHASES = ["setup", "research", "planning", "plan-review", "implementation",
           "code-review", "reporting", "wind-down", "complete"]
+CHAINS = {
+    "full": PHASES,
+    "lite": ["setup", "planning", "plan-review", "implementation",
+             "code-review", "wind-down", "complete"],
+}
+# phase being entered -> gate line that must exist in the decision log
+GATES = {"implementation": "gate 1:", "wind-down": "gate 2:"}
 
 
 def parse_frontmatter(text):

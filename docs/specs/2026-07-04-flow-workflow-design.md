@@ -281,6 +281,37 @@ sloppiness (the realistic failure mode), not adversarial forgery — the same tr
 Verify-stamp enforcement (phase advance requires a fresh passing verify run recorded against
 current HEAD) is deliberately deferred to v2.
 
+## Display (the flow mod)
+
+`hooks/hooks.json` also names a hooks module, `hooks/mod/register.tsx`: a Claude Code mod
+that draws a task's state. It is display only. Mods can be off — an organisation's policy, a
+rollout switch, `claude -p` — so nothing in it may be load-bearing: the gates above stay in
+`flow_validate.py`, and a session without the mod behaves exactly as one with it, minus the
+pictures.
+
+**One snapshot.** `hooks/flow_status.py --cwd <dir>` prints every task as JSON — phase,
+chain, gates (`passed` / `waiting` / `ahead`), progress, decisions, deviations, plan.md — read
+on `flow_common` (which now also holds `CHAINS` and `GATES`, so the snapshot and the validator
+can't disagree about a chain). It scans every worktree of the repo, keeping the copy of a task
+that sits on the task's own branch. The mod runs it at session start, after edits, shell
+commands and turns, and every 5 s while the repo has tasks (30 s while it has none), and never
+parses workflow.md itself. A gate is `waiting` when the phase just before it is current: the
+next step is the user's.
+
+**Five views, one palette.** The rail above the prompt; `/flow-pane` (Progress, Plan,
+Decisions, Deviations, Tasks); `/flow-status`, answered without a model turn as a fenced block
+the mod only colours, so an old row keeps the state it printed; toasts on a phase move, a gate
+opening or approved, a deviation, and the validator refusing an edit; the status line and a
+line under the spinner. Colour has one meaning each — periwinkle (ANSI 67) is where the task
+is, sage (108) done, straw (186) waiting on the user, rose (210) blocked or deviated; dim is
+not yet reached. The terminal is given the ANSI-256 index itself, since hex there is
+downsampled to a different colour; other surfaces get the same colours as hex.
+
+**Gate buttons draft, never send.** At a waiting gate the rail offers *approve* and *request
+changes*, which put `Gate 1: I approve the plan.` (or the start of a change request) in the
+prompt and stop. The user presses Enter, so the approval the phase skill records is the
+user's own message, and the validator remains the only thing that opens a gate.
+
 ## Guardrails (baked into skill wording)
 
 - Reviewer and critic: "flag only correctness/requirement gaps" — no nitpicks, no manufactured

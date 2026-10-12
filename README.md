@@ -20,6 +20,15 @@ setup → research → plan → **gate 1** → implement → review-vs-plan → 
   `hooks/flow_events.py`). Side effects only — a failure is reported and
   dropped, never fatal, never a gate. `.flow.md` is checked in, so its commands
   run for anyone who runs flow in that repo.
+- Shows where you are (a Claude Code mod, `hooks/mod/`), all display, never a
+  gate: the phase rail above the prompt (straw-framed with approve / request
+  changes while a gate waits on you — the buttons only draft the reply, you
+  press Enter); `/flow-pane` for progress, plan, decisions, deviations and
+  every task across worktrees; `/flow-status` with no model turn; toasts when
+  a phase moves, a gate opens or the validator blocks an edit; the phase on the
+  status line and under the spinner. Colours are the four of the status line's
+  progress bars (ANSI-256 67/108/186/210). Read from one snapshot,
+  `hooks/flow_status.py`. With mods off, flow works exactly as without it.
 - Spec: `docs/specs/2026-07-04-flow-workflow-design.md`.
 
 Install:
@@ -29,4 +38,4 @@ Install:
 Usage: `/flow <task description>` to start; `/flow` to resume; `/flow status` to list;
 `/flow shape <idea>` to brainstorm an idea into tracker tickets (upstream of the
 workflow — no branch, no state file; ends by offering `/flow start`).
-Tests: `python3 -m unittest discover tests -v`
+Tests: `python3 -m unittest discover tests -v` and `claude plugin test .` (the mod)

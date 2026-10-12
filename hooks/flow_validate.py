@@ -10,16 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from flow_common import (PHASES, artifacts_dir, find_project_root,
+from flow_common import (CHAINS, GATES, artifacts_dir, find_project_root,
                          parse_frontmatter)
-
-CHAINS = {
-    "full": PHASES,
-    "lite": ["setup", "planning", "plan-review", "implementation",
-             "code-review", "wind-down", "complete"],
-}
-# phase being entered -> gate line that must exist in the decision log
-GATES = {"implementation": "gate 1:", "wind-down": "gate 2:"}
 LOCKED_PHASES = {"setup", "research", "planning", "plan-review", "reporting"}
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ASSUMPTIONS_RE = re.compile(r"^##\s+Assumptions\b[^\n]*\n(.*?)(?=^##\s|\Z)",

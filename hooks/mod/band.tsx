@@ -5,11 +5,11 @@
 import type { RenderElement, RenderPropsOf } from 'claude-code'
 
 import type { Snapshot } from '../../types'
-import { Bar, GateRow, ink, OpenButtons, Rail } from './look'
+import { Bar, GateActions, GateTitle, ink, OpenButtons, Rail } from './look'
 import type { Actions, Els } from './look'
 import { GLYPH, hereTask, openTarget, plural, statusLine, waitingGate } from './model'
 
-const ROWS = 5 // frame (2) + heading, rail, next
+const ROWS = 5 // frame (2) + heading, rail, next; a waiting gate adds its actions' row
 
 /** The band's tree, or null to leave the band as it is. */
 export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['AbovePrompt'], act: Actions): RenderElement | null {
@@ -29,7 +29,7 @@ export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['Above
   }
 
   const gate = waitingGate(task)
-  if (props.maxRows < ROWS) {
+  if (props.maxRows < ROWS + (gate ? 1 : 0)) {
     // no room for the frame: the status line's words, in the rail's colour
     return <E.Text {...ink(E, gate ? 'you' : 'current')} bold wrap="truncate-end">{statusLine(task)}</E.Text>
   }
@@ -46,12 +46,13 @@ export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['Above
             <E.Text color={E.paint.wrong}>{`  ${GLYPH.deviation} ${plural(task.deviations.length, 'deviation')}`}</E.Text>
           )}
         </E.Text>
-        {Bar(E, task)}
+        {/* the bar keeps its width; the title is what gives way */}
+        <E.Box flexShrink={0}>{Bar(E, task)}</E.Box>
       </E.Box>
       {Rail(E, task, Math.max(20, props.bodyColumns - 4))}
       <E.Box flexDirection="row" justifyContent="space-between" columnGap={2}>
         {gate ? (
-          GateRow(E, act, task, gate)
+          GateTitle(E, gate)
         ) : (
           <E.Text wrap="truncate-end">
             <E.Text color={E.paint.current} bold>{`${GLYPH.next} next  `}</E.Text>
@@ -63,6 +64,7 @@ export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['Above
           {OpenButtons(E, act, openTarget(s), 'band')}
         </E.Box>
       </E.Box>
+      {gate && GateActions(E, act, task, gate)}
     </E.Box>
   )
 }

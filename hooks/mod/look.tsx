@@ -105,13 +105,17 @@ export function changesText(g: Gate): string {
   return `Gate ${g.n}: changes requested — `
 }
 
-/** The straw row a waiting gate draws: what's asked, and three actions. */
-export function GateRow(E: Els, act: Actions, task: Task, g: Gate): RenderElement {
+/** What a waiting gate asks, in straw. */
+export function GateTitle(E: Els, g: Gate): RenderElement {
+  return <E.Text color={E.paint.you} bold wrap="truncate-end">{`${GLYPH.gateWaiting} gate ${g.n} · ${gateWord(g)} is yours to give`}</E.Text>
+}
+
+/** A waiting gate's three actions, together on a row of their own. */
+export function GateActions(E: Els, act: Actions, task: Task, g: Gate): RenderElement {
   const you = E.paint.you
   const doc = g.n === 1 ? 'plan' : 'report'
   return (
-    <E.Box flexDirection="row" columnGap={2} flexWrap="wrap">
-      <E.Text color={you} bold>{`${GLYPH.gateWaiting} gate ${g.n} · ${gateWord(g)} is yours to give`}</E.Text>
+    <E.Box flexDirection="row" columnGap={3} flexWrap="wrap">
       <E.Button key={`gate-${g.n}-open`} label={`open ${doc}`} hotkey="p" plain
         onPress={() => act.openPane(g.n === 1 ? 'plan' : 'progress', task.folder)}>
         <E.Text color={you}>{`open ${doc}`}</E.Text>
@@ -122,6 +126,16 @@ export function GateRow(E: Els, act: Actions, task: Task, g: Gate): RenderElemen
       <E.Button key={`gate-${g.n}-changes`} label="request changes" hotkey="r" plain onPress={() => act.draft(changesText(g))}>
         <E.Text color={you}>request changes</E.Text>
       </E.Button>
+    </E.Box>
+  )
+}
+
+/** The straw block a waiting gate draws: what's asked, then the actions. */
+export function GateRow(E: Els, act: Actions, task: Task, g: Gate): RenderElement {
+  return (
+    <E.Box flexDirection="column">
+      {GateTitle(E, g)}
+      {GateActions(E, act, task, g)}
     </E.Box>
   )
 }

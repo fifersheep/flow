@@ -216,6 +216,11 @@ class TestSetup(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("nothing more to set up", lines[2])
 
+    def test_paths_under_home_read_as_tilde(self):
+        self.env["FLOW_ITERM_VENV"] = str(Path.home() / ".cache" / "flow" / "iterm2-venv")
+        _, lines = self.setup_lines()
+        self.assertIn("  ✓ helper package in ~/.cache/flow/iterm2-venv", lines)
+
     def test_every_line_leads_with_a_glyph_the_mod_colours(self):
         _, lines = self.setup_lines(api=False)
         for line in lines:

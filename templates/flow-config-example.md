@@ -32,9 +32,8 @@ tracker: {{optional, e.g. linear — omit for no ticket-status sync}}
      .flow.md is checked in, so anything here runs automatically for anyone who
      runs flow in this repo. Keep machine-specific commands out of it.
 
-     "Open the new worktree in my editor" does NOT belong here: flow makes a
-     worktree at setup, but so do --worktree, EnterWorktree and agent isolation,
-     and none of those are flow phases. That wants a user-level Claude Code hook
-     on PostToolUse/Bash + CwdChanged. -->
+     "Open the new worktree in my editor" doesn't belong here: press e on the
+     flow rail (or run /flow-code) when you want it, and t (or /flow-term) for
+     a terminal there. -->
 - {{implementation: osascript -e 'display notification "flow: plan approved"'}}
 - {{complete: gh pr view --web}}

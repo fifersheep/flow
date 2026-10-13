@@ -3,7 +3,7 @@
 A Claude Code plugin: a phased development workflow (setup → research → plan →
 gate 1 → implement → review → gate 2 → wind-down) whose gates are enforced by a
 PreToolUse hook rather than by prompt discipline. See README.md for usage and
-`docs/specs/2026-07-04-flow-workflow-design.md` for the design.
+`docs/design.md` for why it's built that way.
 
 Layout: `skills/` (phase skills), `agents/` (subagents), `hooks/` (the
 validator and its shell-command reader `flow_shell.py`, the snapshot script,

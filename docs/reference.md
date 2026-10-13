@@ -1,7 +1,7 @@
 # flow reference
 
-The details behind the [README](../README.md). The design, and the reasoning
-for each choice, is in [specs/2026-07-04-flow-workflow-design.md](specs/2026-07-04-flow-workflow-design.md).
+The details behind the [README](../README.md). The reasoning behind the
+design is in [design.md](design.md).
 
 ## Task state
 
@@ -33,9 +33,9 @@ task's `workflow.md` it checks the phase change:
 - `wind-down` needs a dated `gate 2:` entry.
 
 On any other file in the repo, it refuses code edits while the task on that
-branch is before implementation. Flow's own files (the task folder,
-`.flow.md`) stay writable, and so does anything outside the repo, such as
-`/tmp`.
+branch is before implementation, or in reporting with gate 2 pending. Flow's
+own files (the task folder, `.flow.md`) stay writable, and so does anything
+outside the repo, such as `/tmp`.
 
 A Bash command is held to the same rule for the files it visibly writes.
 `hooks/flow_shell.py` reads the command before it runs (quotes, `&&`, `;`,

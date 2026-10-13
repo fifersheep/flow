@@ -8,7 +8,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Gate, Snapshot, Task } from '../../types'
-import { bar, blockReason, changes, lineRole, paletteFor, statusLine, statusPin, statusReport, steps } from '../../hooks/mod/model'
+import { bar, blockReason, changes, lineRole, openTarget, paletteFor, statusLine, statusPin, statusReport, steps } from '../../hooks/mod/model'
 
 const FULL = ['setup', 'research', 'planning', 'plan-review', 'implementation', 'code-review', 'reporting', 'wind-down', 'complete']
 const LITE = ['setup', 'planning', 'plan-review', 'implementation', 'code-review', 'wind-down', 'complete']
@@ -141,21 +141,48 @@ describe('model', () => {
     expect(lineRole('  ◇ gate 2')).toBe('todo')
     expect(lineRole('  ✓ setup')).toBe('done')
   })
+
+  test("openTarget: the session's task, a named one, else the checkout itself", async () => {
+    const side = task({ slug: 'side', folder: 'side', isHere: false, branch: 'flow/side', worktree: '/repo-side', ticketId: 'BEE-7' })
+    const s = snap([task(), side])
+    expect(openTarget(s)).toEqual({ dir: '/repo', label: 'add-widget' })
+    expect(openTarget(s, 'side')).toEqual({ dir: '/repo-side', label: 'side' })
+    expect(openTarget(s, 'bee-7')).toEqual({ dir: '/repo-side', label: 'side' })
+    expect(openTarget(snap([side]))).toEqual({ dir: '/repo', label: 'this checkout' })
+    expect('error' in openTarget(s, 'nope')).toBe(true)
+    expect('error' in openTarget(null)).toBe(true)
+  })
+
+  test('openTarget notes a task whose branch no worktree has checked out', async () => {
+    const away = task({ slug: 'away', folder: 'away', isHere: false, branch: 'flow/away' })
+    expect(openTarget(snap([away]), 'away')).toEqual({ dir: '/repo', label: 'away', note: "branch flow/away isn't checked out here" })
+  })
 })
 
 // --- through the engine --------------------------------------------------
 
 const ENGINE = 'drawn beneath'
 
-type Seen = { toasts: string[]; status: (string | undefined)[]; filled: string[]; opened: string[] }
+type Seen = { toasts: string[]; status: (string | undefined)[]; filled: string[]; opened: string[]; ran: string[][] }
 
-/** Answers the engine calls the mod makes, beneath it, from `doc`. */
-function world(on: On, doc: { current: Snapshot }): Seen {
-  const seen: Seen = { toasts: [], status: [], filled: [], opened: [] }
+const OPENED = { ok: true, message: 'opened an iTerm split (right, 50%) in /repo' }
+
+type Opener = { ok: boolean; message: string; setup?: boolean; needsSetup?: boolean; lines?: string[] }
+
+/**
+ * Answers the engine calls the mod makes, beneath it, from `doc`; flow_open.py
+ * answers `opener`. `ran` keeps the opens themselves, not the dry runs.
+ */
+function world(on: On, doc: { current: Snapshot }, opener: Opener | ((argv: readonly string[]) => Opener) = OPENED): Seen {
+  const seen: Seen = { toasts: [], status: [], filled: [], opened: [], ran: [] }
   on('session.cwd', () => ({ value: '/repo' }))
-  on('process.run', () => ({
-    value: { exitCode: 0, stdout: JSON.stringify(doc.current), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
-  }))
+  on('process.run', ($, e) => {
+    const isOpen = e.argv.some(a => a.endsWith('flow_open.py'))
+    if (isOpen && !e.argv.includes('--dry-run')) seen.ran.push(e.argv.slice(2))
+    const answer = typeof opener === 'function' ? opener(e.argv) : opener
+    const stdout = JSON.stringify(isOpen ? { ...answer, argv: [] } : doc.current)
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('ui.toast', ($, e) => {
     seen.toasts.push(e.text)
     return { value: undefined }
@@ -322,5 +349,141 @@ describe('mod 5: status line and spinner', () => {
       expect(line?.props.color).toBe(paletteFor(surface).current)
       await ui.unmount()
     }
+  })
+})
+
+describe('a terminal or the editor in the worktree', () => {
+  test("the band's buttons open the session's task's worktree, and say so", async ($, on) => {
+    const seen = world(on, { current: snap([task()]) })
+    await load($)
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ plugin: 'flow', surface, component: 'AbovePrompt', props: BAND })
+      expect(await ui.find({ type: 'Button', key: 'band-editor' })).toBeDefined()
+      await ui.press({ key: 'band-terminal' })
+      await ui.unmount()
+    }
+    expect(seen.ran).toEqual([
+      ['terminal', '/repo', '--app', 'iterm-split', '--side', 'right', '--size', '50'],
+      ['terminal', '/repo', '--app', 'iterm-split', '--side', 'right', '--size', '50'],
+    ])
+    expect(seen.toasts).toEqual(['flow ▸ opened an iTerm split (right, 50%) in /repo', 'flow ▸ opened an iTerm split (right, 50%) in /repo'])
+  })
+
+  test('they stay on the band while a gate waits', async ($, on) => {
+    const seen = world(on, { current: snap([task({ phase: 'plan-review', passed: [] })]) })
+    await load($)
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect(await ui.find({ type: 'Button', key: 'gate-1-approve' })).toBeDefined()
+    await ui.press({ key: 'band-editor' })
+    await ui.unmount()
+    expect(seen.ran).toEqual([['editor', '/repo', '--app', 'vscode', '--side', 'right', '--size', '50']])
+  })
+
+  test('with no task on this branch, the quiet line opens the checkout itself', async ($, on) => {
+    const side = task({ slug: 'side', folder: 'side', isHere: false, branch: 'flow/side', worktree: '/repo-side' })
+    const seen = world(on, { current: snap([side]) })
+    await load($)
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await ui.press({ key: 'band-terminal' })
+    await ui.unmount()
+    expect(seen.ran).toEqual([['terminal', '/repo', '--app', 'iterm-split', '--side', 'right', '--size', '50']])
+  })
+
+  test("the pane's buttons follow the task picked in it", async ($, on) => {
+    const side = task({ slug: 'side', folder: 'side', isHere: false, branch: 'flow/side', worktree: '/repo-side' })
+    const seen = world(on, { current: snap([task(), side]) })
+    await $.command.run({ command: 'flow-pane', ...RUN, args: 'tasks' })
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'Pane', requestId: 'flow', props: PANE_PROPS })
+    await ui.press({ key: 'task-side' })
+    expect(await ui.find({ type: 'Text', text: '/repo-side' })).toBeDefined()
+    await ui.press({ key: 'pane-terminal' })
+    await ui.unmount()
+    expect(seen.ran).toEqual([['terminal', '/repo-side', '--app', 'iterm-split', '--side', 'right', '--size', '50']])
+  })
+
+  test('/flow-term and /flow-code take a task, and the settings pick the apps', { options: { terminal: 'tmux', editor: 'cursor', splitSide: 'left', splitSize: 30 } }, async ($, on) => {
+    const side = task({ slug: 'side', folder: 'side', isHere: false, branch: 'flow/side', worktree: '/repo-side' })
+    const seen = world(on, { current: snap([task(), side]) }, { ok: true, message: 'opened Cursor in /repo-side' })
+    const term = await $.command.run({ command: 'flow-term', ...RUN, args: 'side' })
+    const code = await $.command.run({ command: 'flow-code', ...RUN, args: 'side' })
+    expect(seen.ran).toEqual([
+      ['terminal', '/repo-side', '--app', 'tmux', '--side', 'left', '--size', '30'],
+      ['editor', '/repo-side', '--app', 'cursor', '--side', 'left', '--size', '30'],
+    ])
+    expect(code.text).toBe('▸ opened Cursor in /repo-side')
+    expect(term.text).toBeDefined()
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    expect((await ui.find({ type: 'Button', key: 'band-editor' }))?.props.label).toBe('cursor')
+    await ui.unmount()
+  })
+
+  test('an unknown task is named back, and nothing opens', async ($, on) => {
+    const seen = world(on, { current: snap([task()]) })
+    const ran = await $.command.run({ command: 'flow-term', ...RUN, args: 'nope' })
+    expect(ran.text).toBe('⛔ no task "nope" — add-widget')
+    expect(seen.ran).toEqual([])
+  })
+
+  test("an opener that fails is toasted as blocked", async ($, on) => {
+    const seen = world(on, { current: snap([task()]) }, { ok: false, message: "the terminal setting is tmux, but this session isn't inside tmux" })
+    await load($)
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await ui.press({ key: 'band-terminal' })
+    await ui.unmount()
+    expect(seen.toasts).toEqual(["⛔ flow: the terminal setting is tmux, but this session isn't inside tmux"])
+  })
+})
+
+describe('guided setup for a split', () => {
+  test('a press that will install the helper says so first', async ($, on) => {
+    const seen = world(on, { current: snap([task()]) }, argv =>
+      argv.includes('--dry-run') ? { ok: true, message: 'would open', setup: true } : { ok: true, message: 'opened an iTerm split (left, 30%) in /repo' })
+    await load($)
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await ui.press({ key: 'band-terminal' })
+    await ui.unmount()
+    expect(seen.toasts).toEqual([
+      "flow ▸ setting up iTerm's Python API for this split — one time, a few seconds…",
+      'flow ▸ opened an iTerm split (left, 30%) in /repo',
+    ])
+  })
+
+  test('a split that fell back is marked, and points at /flow-term setup', async ($, on) => {
+    const seen = world(on, { current: snap([task()]) }, { ok: true, needsSetup: true, message: 'split right at 50% — left at 30% needs setup: run /flow-term setup' })
+    await load($)
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+    await ui.press({ key: 'band-terminal' })
+    await ui.unmount()
+    expect(seen.toasts).toEqual(['flow ▲ split right at 50% — left at 30% needs setup: run /flow-term setup'])
+  })
+
+  test('/flow-term setup prints the checklist, each line in its colour', { options: { splitSide: 'left', splitSize: 30 } }, async ($, on) => {
+    const lines = [
+      '▌ terminal setup — iterm-split, left at 30%',
+      '  ✓ Claude Code runs in iTerm',
+      "  ▲ iTerm's Python API is off — left at 30% needs it",
+      '      ▸ iTerm → Settings → General → Magic → tick "Enable Python API"',
+      '  ○ helper package — waits on the API',
+    ]
+    const seen = world(on, { current: snap([task()]) }, { ok: false, message: '', lines })
+    const ran = await $.command.run({ command: 'flow-term', ...RUN, args: 'setup' })
+    expect(seen.ran).toEqual([['setup', '--app', 'iterm-split', '--side', 'left', '--size', '30']])
+    expect(ran.text).toBe(['```', ...lines, '```'].join('\n'))
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ plugin: 'flow', surface, component: 'CommandOutput', props: { command: 'flow-term', args: 'setup', text: `flow: ${ran.text}`, isErrored: false } })
+      const p = paletteFor(surface)
+      expect((await ui.find({ type: 'Text', text: '  ✓ Claude Code runs in iTerm' }))?.props.color).toBe(p.done)
+      expect((await ui.find({ type: 'Text', text: /Python API is off/ }))?.props.color).toBe(p.wrong)
+      expect((await ui.find({ type: 'Text', text: /Enable Python API/ }))?.props.color).toBe(p.current)
+      expect((await ui.find({ type: 'Text', text: /waits on the API/ }))?.props.dimColor).toBe(true)
+      await ui.unmount()
+    }
+  })
+
+  test("an ordinary /flow-term answer is left to the engine's own drawing", async ($, on) => {
+    world(on, { current: snap([task()]) })
+    const ui = await $.ui.mount({ plugin: 'flow', surface: 'terminal', component: 'CommandOutput', props: { command: 'flow-term', args: '', text: 'flow: ▸ opened an iTerm split', isErrored: false } })
+    expect(await ui.find({ type: 'Text', text: ENGINE })).toBeDefined()
+    await ui.unmount()
   })
 })

@@ -29,6 +29,23 @@ setup → research → plan → **gate 1** → implement → review-vs-plan → 
   status line and under the spinner. Colours are the four of the status line's
   progress bars (ANSI-256 67/108/186/210). Read from one snapshot,
   `hooks/flow_status.py`. With mods off, flow works exactly as without it.
+- Opens a task's worktree on request: `t` (terminal) and `e` (editor) on the
+  rail — gate or not — and at the top of `/flow-pane` for the task shown
+  there, or `/flow-term [task]` and `/flow-code [task]`. With no task on the
+  branch they open the session's own checkout. The terminal is an iTerm pane
+  split beside this session, and the editor VS Code, unless the plugin's
+  settings (`/config`) say otherwise: terminal is `iterm-split`, `iterm-tab`,
+  `iterm-window`, `terminal`, `warp` or `tmux` (also a split); editor is
+  `vscode`, `cursor` or `zed`. A split's side (`splitSide`: right, left, top,
+  bottom) and share of Claude Code's pane (`splitSize`, %) are settings too.
+  iTerm's AppleScript only splits right or below at half, so any other iTerm
+  split uses its Python API (Settings → General → Magic → Enable Python
+  API), with the `iterm2` package flow installs into `~/.cache/flow` on first
+  use; if that can't be had it splits right or below at half and points at
+  `/flow-term setup`, a checklist of what the chosen split needs — iTerm, the
+  API setting, the package (installed there if missing), a test connection —
+  with the fix beside each missing piece. The opening is
+  `hooks/flow_open.py`; nothing opens unasked.
 - Spec: `docs/specs/2026-07-04-flow-workflow-design.md`.
 
 Install:

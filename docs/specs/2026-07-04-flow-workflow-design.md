@@ -312,6 +312,27 @@ changes*, which put `Gate 1: I approve the plan.` (or the start of a change requ
 prompt and stop. The user presses Enter, so the approval the phase skill records is the
 user's own message, and the validator remains the only thing that opens a gate.
 
+**Open the worktree, on request.** Flow's worktrees are where the work is, so the rail (at a
+gate too) and the top of the pane carry `t` terminal and `e` editor, and `/flow-term [task]`,
+`/flow-code [task]` do the same by command. They open the shown task's worktree — a task named by
+slug, folder or ticket id, else the session's task, else the session's checkout. The snapshot
+already says which worktree holds each task, which is why this is flow's rather than a
+user-settings hook. Which apps is the plugin's `userConfig` (`terminal`: `iterm-split` by
+default — a pane beside the session's own, found by `ITERM_SESSION_ID` — or `iterm-tab`,
+`iterm-window`, `terminal`, `warp`, `tmux` (a split too); `editor`: `vscode` by default, `cursor`,
+`zed`); a split's side (`splitSide`) and share of the session's pane (`splitSize`, %) too.
+iTerm's AppleScript splits only right or below, at half; any other split runs
+`hooks/flow_iterm.py` on iTerm's Python API, in a venv holding a pinned `iterm2` package that
+`flow_open.py` makes in `~/.cache/flow` on first use (the mod toasts before that press installs
+it). When the API is off — read from iTerm's own setting first, so it isn't tried — or the
+install or connection fails, the split falls back to AppleScript's nearest and the toast points
+at `/flow-term setup`: a checklist, in the same glyphs and colours as `/flow-status`, of what the
+chosen split needs (Claude Code in iTerm, the API setting, the package, a test connection), each
+missing piece with its fix and the later ones marked as waiting. Setup installs the package when
+that is what's missing — asking for setup is the consent. How each is driven is
+`hooks/flow_open.py`, which takes the path as an argument (never spliced into
+a script) and answers JSON, so a failure costs a toast. Nothing opens without a press.
+
 ## Guardrails (baked into skill wording)
 
 - Reviewer and critic: "flag only correctness/requirement gaps" — no nitpicks, no manufactured

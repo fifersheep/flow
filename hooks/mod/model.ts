@@ -218,3 +218,33 @@ export function lineRole(line: string): Role | 'title' | 'plain' {
   if (head === GLYPH.todo || head === GLYPH.gateAhead) return 'todo'
   return 'plain'
 }
+
+export type OpenKind = 'terminal' | 'editor'
+
+/** The editor setting's values, as the buttons name them. */
+export const EDITOR_NAME: Record<string, string> = { vscode: 'vs code', cursor: 'cursor', zed: 'zed' }
+
+export type OpenTarget = { dir: string; label: string; note?: string } | { error: string }
+
+/**
+ * Where a terminal or an editor opens: the named task's worktree (by slug,
+ * folder or ticket id), else the session's task's, else the session's own
+ * checkout, so the buttons and /flow-term, /flow-code always have somewhere.
+ */
+export function openTarget(s: Snapshot | null, asked = ''): OpenTarget {
+  if (!s || s.error || !s.root) return { error: 'the repo has not been read yet — try again in a moment' }
+  const a = asked.trim().toLowerCase()
+  if (!a) {
+    const t = hereTask(s)
+    return t ? taskTarget(s, t) : { dir: s.root, label: 'this checkout' }
+  }
+  const t = s.tasks.find(x => [x.slug, x.folder, x.ticketId].some(n => n && n.toLowerCase() === a))
+  if (!t) return { error: `no task "${asked.trim()}" — ${s.tasks.map(x => x.slug).join(', ') || 'this repo has no flow tasks'}` }
+  return taskTarget(s, t)
+}
+
+export function taskTarget(s: Snapshot, t: Task): OpenTarget {
+  // a task whose branch no worktree has checked out lives only in the root
+  const isAway = t.worktree === s.root && !t.isHere && !!t.branch && t.branch !== s.branch
+  return { dir: t.worktree, label: t.slug, ...(isAway ? { note: `branch ${t.branch} isn't checked out here` } : {}) }
+}

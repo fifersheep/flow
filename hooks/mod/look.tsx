@@ -5,7 +5,7 @@ import type { Elements, RenderElement, TextProps } from 'claude-code'
 
 import type { Gate, PaneTab, Task } from '../../types'
 import { bar, GLYPH, glyphOf, gateWord, showsProgress, steps } from './model'
-import type { Palette, Role, Step } from './model'
+import type { OpenKind, OpenTarget, Palette, Role, Step } from './model'
 
 /** A surface's elements, and the palette that surface draws the roles in. */
 export type Els = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button' | 'Markdown'> & { paint: Palette }
@@ -26,6 +26,10 @@ export interface Actions {
    * message, and the validator stays the only thing that opens a gate.
    */
   draft(text: string): void
+  /** A terminal or the editor in `dir`, the apps the plugin's settings name. */
+  open(kind: OpenKind, dir: string): void
+  /** The editor setting as the button reads it: `vs code`. */
+  editorName: string
 }
 
 /** Text props for a role: one of the four colours, or dim for not-yet. */
@@ -120,4 +124,16 @@ export function GateRow(E: Els, act: Actions, task: Task, g: Gate): RenderElemen
       </E.Button>
     </E.Box>
   )
+}
+
+/**
+ * `t: terminal  e: vs code`, opening `at`'s folder; dim until wanted. `where`
+ * keeps the keys apart when the band and the pane both draw a pair.
+ */
+export function OpenButtons(E: Els, act: Actions, at: OpenTarget, where: string): RenderElement[] {
+  if ('error' in at) return []
+  return [
+    <E.Button key={`${where}-terminal`} label="terminal" hotkey="t" plain dimColor onPress={() => act.open('terminal', at.dir)} />,
+    <E.Button key={`${where}-editor`} label={act.editorName} hotkey="e" plain dimColor onPress={() => act.open('editor', at.dir)} />,
+  ]
 }

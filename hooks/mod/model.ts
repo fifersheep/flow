@@ -207,10 +207,15 @@ export function changes(prev: Snapshot | null, next: Snapshot): string[] {
   return out
 }
 
-/** The validator's refusal text, when a tool result is one. */
-export function blockReason(text: string | undefined): string | undefined {
+/**
+ * The validator's refusal text, when a tool result is one. A failed shell
+ * command's own output can say 'flow: ' too (a CI log's "workflow: ci"), so
+ * for Bash only the lockdown's own wording counts.
+ */
+export function blockReason(text: string | undefined, tool = 'Edit'): string | undefined {
   if (!text) return undefined
-  const line = text.split('\n').find(l => l.includes('flow: '))
+  const line = text.split('\n').find(l => l.includes('flow: ')
+    && (tool !== 'Bash' || l.includes('code edits are locked')))
   if (!line) return undefined
   const reason = line.slice(line.indexOf('flow: ') + 'flow: '.length).trim()
   return reason.length > 140 ? `${reason.slice(0, 139)}…` : reason

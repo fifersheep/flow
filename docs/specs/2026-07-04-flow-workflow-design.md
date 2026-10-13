@@ -271,6 +271,11 @@ setup / research / planning / plan-review, edits to files **outside the task fol
 edits while phase is `reporting` (gate 2 pending). This mechanically enforces what the gates
 are for: no implementation before plan approval.
 
+(Since 0.8.0 the lockdown also runs on Bash: `hooks/flow_shell.py` reads the files a command
+visibly writes — redirects, `tee`, `sed -i`, `mv`/`cp`/`rm`/`touch`, `git apply`,
+`git checkout -- <path>`, interpreter one-liners — and holds each to the same rule. A
+heuristic over the command text, not a sandbox; an unparseable command is allowed.)
+
 **Escape hatch (required):** `flow-validate` honors a documented manual override (e.g.
 `FLOW_FORCE=1` on the invoking command or a `force: true` line the user adds to
 `workflow.md` frontmatter by hand) so a validator bug can never wedge legitimate work. The

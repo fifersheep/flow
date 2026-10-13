@@ -33,16 +33,25 @@ def parse_frontmatter(text):
     return out
 
 
+def checkout_root(path):
+    """The nearest of path and its ancestors that looks like a checkout root
+    (contains .git — a dir, or a file in worktrees — or .flow.md); None
+    outside any. path itself counts: a shell command can write a whole tree."""
+    path = Path(path).resolve()
+    for d in (path, *path.parents):
+        if (d / ".git").exists() or (d / ".flow.md").is_file():
+            return d
+    return None
+
+
 def find_project_root(payload):
-    """Nearest ancestor of the target file that looks like a checkout root
-    (contains .git — a dir, or a file in worktrees — or .flow.md). Falls
-    back to CLAUDE_PROJECT_DIR / cwd, so worktree checkouts get their own
-    root instead of the session's launch directory."""
+    """The checkout_root of the target file. Falls back to CLAUDE_PROJECT_DIR
+    / cwd, so worktree checkouts get their own root instead of the session's
+    launch directory."""
     try:
-        target = Path(payload["tool_input"]["file_path"]).resolve()
-        for parent in target.parents:
-            if (parent / ".git").exists() or (parent / ".flow.md").is_file():
-                return parent
+        root = checkout_root(payload["tool_input"]["file_path"])
+        if root is not None:
+            return root
     except Exception:
         pass
     root = os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or os.getcwd()

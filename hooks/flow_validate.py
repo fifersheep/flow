@@ -5,13 +5,15 @@ Exit 0 = allow. Exit 2 = block (reason on stderr). Any internal error → allow
 (exit 0): a buggy validator must never wedge unrelated work.
 """
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-from flow_common import (CHAINS, GATES, artifacts_dir, find_project_root,
-                         parse_frontmatter)
+from flow_common import (CHAINS, GATES, artifacts_dir, checkout_root,
+                         find_project_root, parse_frontmatter)
+from flow_shell import writes
 LOCKED_PHASES = {"setup", "research", "planning", "plan-review", "reporting"}
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 ASSUMPTIONS_RE = re.compile(r"^##\s+Assumptions\b[^\n]*\n(.*?)(?=^##\s|\Z)",
@@ -29,6 +31,8 @@ def simulate(tool_name, tool_input, current_text):
 
 def main():
     payload = json.load(sys.stdin)
+    if payload.get("tool_name") == "Bash":
+        return check_shell(payload)
     if payload.get("tool_name") not in ("Write", "Edit"):
         return 0
     target = Path(payload["tool_input"]["file_path"]).resolve()
@@ -134,23 +138,49 @@ def current_branch(root):
 
 
 def check_lockdown(target, root, adir):
+    why = lock_reason(target, root, adir)
+    return block(why) if why else 0
+
+
+def lock_reason(target, root, adir):
+    """Why a write to target is refused right now, or None: a task on the
+    checkout's branch is before gate 1 (or at gate 2) and target isn't one of
+    flow's own files — the task folder or .flow.md."""
     if not adir.is_dir():
-        return 0
+        return None
     branch = current_branch(root)
     if branch is None:
-        return 0
+        return None
     for wf_file in adir.glob("*/workflow.md"):
         fm = parse_frontmatter(wf_file.read_text())
         if (fm.get("branch") != branch or fm.get("force") == "true"
                 or fm.get("phase") not in LOCKED_PHASES):
             continue
         task_dir = wf_file.parent.resolve()
-        if task_dir in target.parents or target == (root / ".flow.md").resolve():
+        if (target == task_dir or task_dir in target.parents
+                or target == (root / ".flow.md").resolve()):
             continue
         gate = "2 (merge approval)" if fm.get("phase") == "reporting" else "1 (plan approval)"
-        return block(f"task '{fm.get('task', task_dir.name)}' is in phase "
-                     f"'{fm.get('phase')}' — code edits are locked until gate "
-                     f"{gate} is recorded in {wf_file}")
+        return (f"task '{fm.get('task', task_dir.name)}' is in phase "
+                f"'{fm.get('phase')}' — code edits are locked until gate "
+                f"{gate} is recorded in {wf_file}")
+    return None
+
+
+def check_shell(payload):
+    """The lockdown, for a Bash command: each file the command visibly writes
+    (flow_shell reads it off the command) is held to the Write/Edit rule. Paths
+    outside any checkout — /tmp, /dev/null — are never locked."""
+    cwd = (payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR")
+           or os.getcwd())
+    for target, how in writes(payload["tool_input"].get("command", ""), cwd):
+        root = checkout_root(target)
+        if root is None:
+            continue
+        why = lock_reason(target, root, (root / artifacts_dir(root)).resolve())
+        if why:
+            return block(f"{why}; this command writes "
+                         f"{target.relative_to(root)} (via {how})")
     return 0
 
 

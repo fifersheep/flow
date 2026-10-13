@@ -20,8 +20,8 @@ says otherwise), named `<date>-<slug>`:
 
 ## The validator
 
-`hooks/flow_validate.py` runs before every Write and Edit. On a task's
-`workflow.md` it checks the phase change:
+`hooks/flow_validate.py` runs before every Write, Edit and Bash call. On a
+task's `workflow.md` it checks the phase change:
 
 - the phase must be legal for the task's mode, and a new `workflow.md` starts
   at `setup`;
@@ -36,8 +36,31 @@ On any other file in the repo, it refuses code edits while the task on that
 branch is before implementation. Flow's own files (the task folder,
 `.flow.md`) stay writable.
 
-It doesn't see shell commands, so it's a guard on the normal path, not a
-sandbox. `force: true` in the frontmatter switches it off for that task.
+A Bash command is held to the same rule for the files it visibly writes.
+`hooks/flow_shell.py` reads the command before it runs (quotes, `&&`, `;`,
+pipes, newlines, heredocs, `cd X &&`, `bash -c`) and picks out:
+
+- redirects: `>`, `>>`, `>|`, `&>`, `>&file`;
+- `tee`, `sed -i`, `perl -i`, `mv`, `cp`, `ln`, `rm`, `touch`, `mkdir`,
+  `truncate`, `dd of=`;
+- `git apply` and `patch` (the tree they run in), `git restore`,
+  `git checkout -- <path>`;
+- a `python -c`, `node -e` or `ruby -e` that opens a literal path for writing.
+
+Each path is resolved from the hook's `cwd` and decided like a Write: refused
+inside a locked checkout unless it's the task folder or `.flow.md`. Paths
+outside any checkout (`/tmp`, `/dev/null`) are never locked, and reads, test
+runs, `git switch`/`commit`/`worktree`, and installs aren't writes to it. The
+refusal names the file and how it was written:
+
+    flow: task 'demo' is in phase 'planning' — code edits are locked until
+    gate 1 (plan approval) is recorded in …/workflow.md; this command writes
+    src/a.py (via >)
+
+It's a heuristic, not a sandbox: a path in a variable, a script file, `xargs`,
+`find -exec` or a build tool writes where it can't see, and a command it can't
+parse is allowed. `force: true` in the frontmatter switches the validator off
+for that task.
 
 ## Tracker sync
 
@@ -75,7 +98,7 @@ repo has tasks.
 - **`/flow-pane`**: Progress, Plan, Decisions, Deviations, Tasks (1–5).
 - **`/flow-status`**: the same as text, with no model turn.
 - **Toasts** when a phase moves, a gate opens or is approved, a deviation is
-  recorded, or the validator refuses an edit.
+  recorded, or the validator refuses an edit or a shell write.
 - **The status line and the spinner** carry the phase.
 
 Colour has one meaning each: periwinkle (ANSI 67) is where the task is, sage

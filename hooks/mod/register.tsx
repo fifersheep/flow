@@ -228,8 +228,8 @@ export const register: Register = (on, options) => {
       || e.tool === 'EnterWorktree' || e.tool === 'ExitWorktree') {
       isDirty = true
     }
-    if (e.tool === 'Write' || e.tool === 'Edit') {
-      const why = blockReason(result.deny ?? (result.isError ? result.text : undefined))
+    if (e.tool === 'Write' || e.tool === 'Edit' || e.tool === 'Bash') {
+      const why = blockReason(result.deny ?? (result.isError ? result.text : undefined), e.tool)
       if (why) $.ui.toast(`${GLYPH.blocked} flow blocked: ${why}`)
     }
     return result

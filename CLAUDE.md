@@ -6,7 +6,8 @@ PreToolUse hook rather than by prompt discipline. See README.md for usage and
 `docs/specs/2026-07-04-flow-workflow-design.md` for the design.
 
 Layout: `skills/` (phase skills), `agents/` (subagents), `hooks/` (the
-validator), `templates/` (files the skills write into target repos),
+validator, the snapshot script, and the display mod in `hooks/mod/`), `types/`
+(the mod's state contract), `templates/` (files the skills write into target repos),
 `.claude-plugin/` (manifests), `scripts/`, `tests/`.
 
 ## Version bumps — every change, no exceptions
@@ -35,6 +36,8 @@ PR. One bump per PR, not one per commit.
 ## Checks
 
     python3 -m unittest discover tests -v      # full suite
+    claude plugin test .                       # the mod (tests/mod/)
+    claude plugin validate .                   # manifest + mod scan
     python3 scripts/check_version_bump.py      # manifests agree
     python3 scripts/check_version_bump.py main # ...and are ahead of main
 

@@ -145,7 +145,11 @@ def check_lockdown(target, root, adir):
 def lock_reason(target, root, adir):
     """Why a write to target is refused right now, or None: a task on the
     checkout's branch is before gate 1 (or at gate 2) and target isn't one of
-    flow's own files — the task folder or .flow.md."""
+    flow's own files — the task folder or .flow.md. A target outside root is
+    never locked: root may be the CLAUDE_PROJECT_DIR fallback for a file in
+    no checkout, such as /tmp."""
+    if target != root and root not in target.parents:
+        return None
     if not adir.is_dir():
         return None
     branch = current_branch(root)

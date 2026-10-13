@@ -221,6 +221,19 @@ class TestLockdown(unittest.TestCase):
         self.repo.write("docs/work/2026-07-05-demo/workflow.md", text)
         self.assertEqual(self.edit_code().returncode, 2)
 
+    def test_writes_outside_the_repo_allowed(self):
+        # outside any checkout the root falls back to CLAUDE_PROJECT_DIR —
+        # the locked repo — but the file isn't in it
+        self.activate("planning")
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, ignore_errors=True)
+        for p in (scratch / "notes.md", scratch / "new/dir/a.py"):
+            r = run_hook(payload("Write", p, content="x"), self.repo.dir)
+            self.assertEqual(r.returncode, 0, p)
+        r = run_hook(payload("Edit", scratch / "notes.md", old="x", new="y"),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 0)
+
 
 class TestShellLockdown(unittest.TestCase):
     """Bash is held to the Write/Edit rule for the writes it visibly makes."""

@@ -7,14 +7,20 @@
 # rasterises it at 2x. (freeze's own PNG output drops an embedded font, and
 # the box-drawing frame only lines up in a monospace face.)
 #
-# Needs: freeze (brew install charmbracelet/tap/freeze), Google Chrome, and
-# FONT=path/to/JetBrainsMono-Regular.ttf (github.com/JetBrains/JetBrainsMono).
+# Needs: freeze (brew install charmbracelet/tap/freeze), Chrome or Chromium
+# (CHROME names one anywhere else), and FONT=path/to/JetBrainsMono-Regular.ttf.
+# shoot.py checks all three and fetches the font; run by hand, see its FONT_URL.
 set -euo pipefail
 
 src=${1:?usage: render.sh CAPTURE.ansi OUT.png}
 out=${2:?usage: render.sh CAPTURE.ansi OUT.png}
 font=${FONT:?set FONT to a JetBrains Mono .ttf}
 chrome=${CHROME:-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
+if [ -z "${CHROME:-}" ] && [ ! -x "$chrome" ]; then
+  for c in google-chrome google-chrome-stable chromium chromium-browser; do
+    command -v "$c" >/dev/null && { chrome=$(command -v "$c"); break; }
+  done
+fi
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT

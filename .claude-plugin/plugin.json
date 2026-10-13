@@ -1,7 +1,7 @@
 {
   "name": "flow",
   "description": "Phased development workflow: setup → research → plan → gated plan review → implement → review-against-plan → gated report → wind-down. Durable file-based state, resumable from any session. Plus /flow shape: upstream ticket shaping (brainstorm → agreed tracker tickets).",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "author": { "name": "Scott Laing" },
   "homepage": "https://github.com/fifersheep/flow",
   "repository": "https://github.com/fifersheep/flow",

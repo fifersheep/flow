@@ -177,8 +177,9 @@ python3 scripts/check_version_bump.py main # version is bumped
 
 Every PR bumps the version (see [CLAUDE.md](CLAUDE.md)). The screenshots are
 captured from a live session in a made-up repo by
-[`scripts/demo/shoot.py`](scripts/demo/shoot.py), so they can be retaken when
-the UI changes.
+[`scripts/demo/shoot.py`](scripts/demo/shoot.py), loading flow from your
+checkout, so they can be retaken when the UI changes: `scripts/demo/shoot.py
+--check`, then `scripts/demo/shoot.py`. CLAUDE.md says which image shows what.
 
 ## License
 

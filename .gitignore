@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+# written by Claude Code into a plugin it loads with --plugin-dir
+# (scripts/demo/shoot.py does): the mod's types, and a tsconfig using them
+.claude-plugin/types/
+/tsconfig.json

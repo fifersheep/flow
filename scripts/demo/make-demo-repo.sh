@@ -24,6 +24,8 @@ cd "$repo"
 git init -q -b main
 git config user.name "Demo"
 git config user.email "demo@example.com"
+# fixed dates, so the commit hashes (shown in split.png) are the same every run
+export GIT_AUTHOR_DATE="2026-10-12T09:00:00Z" GIT_COMMITTER_DATE="2026-10-12T09:00:00Z"
 
 # --- the codebase -----------------------------------------------------------
 

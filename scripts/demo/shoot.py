@@ -1,30 +1,47 @@
 #!/usr/bin/env python3
 """Capture the README's screenshots from a live Claude Code session.
 
-    scripts/demo/shoot.py OUT_DIR [SHOT ...]
+    scripts/demo/shoot.py [--check] [--out DIR] [SHOT ...]
 
-Builds the demo repo (make-demo-repo.sh) under /tmp/flowdemo, drives Claude
-Code in a detached tmux session for each shot, crops the screen to the part
-that shows flow, and renders it with render.sh. Needs tmux, freeze, Chrome,
-FONT (see render.sh), and flow installed in Claude Code. The first run asks
-Claude Code to trust the demo folders; this answers yes.
+Builds the demo repo (make-demo-repo.sh) in DEMO (below), drives Claude Code
+in a detached tmux session for each shot, crops the screen to the part that
+shows flow, and renders it with render.sh into DIR (default: docs/images).
+Claude Code loads flow from this checkout (--plugin-dir), with any installed
+copy switched off, so the shots show the code you're changing. The first run
+asks Claude Code to trust the demo folders; this answers yes.
+
+Needs tmux, freeze, Chrome or Chromium, claude, and (for `gif`) ffmpeg.
+`--check` lists what's missing and how to install it; every run checks first.
+The font is JetBrains Mono 2.304, downloaded once to ~/.cache/flow/fonts
+unless FONT names a .ttf.
 
 Shots: hero gate status pane-progress pane-tasks setup blocked split gif
 (default: all). `split` presses `t` with the terminal set to tmux, so flow
-splits this tmux window for real; `gif` approves gate 1 for real — one model
-turn — and needs ffmpeg.
+splits this tmux window for real. `blocked` and `gif` each take a real model
+turn. `setup` shows /flow-term setup's iTerm checklist, so it needs this run
+started inside iTerm with its Python API on; elsewhere it's skipped.
 """
+import argparse
+import hashlib
+import io
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import time
+import urllib.request
+import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-# not /tmp: macOS resolves it to /private/tmp, which shows in the pane's paths
-DEMO = Path("/Users/Shared/flow-demo")
+PLUGIN_ROOT_PATH = HERE.parent.parent
+PLUGIN_ROOT = str(PLUGIN_ROOT_PATH)
+# not /tmp on macOS: it resolves to /private/tmp, which shows in the pane's paths
+DEMO = Path(os.environ.get("FLOW_DEMO_DIR")
+            or ("/Users/Shared/flow-demo" if sys.platform == "darwin" else "/tmp/flow-demo"))
 REPO = DEMO / "acme-api"
 WORKTREE = DEMO / "acme-api-audit-log"
 SESSION = "flowshot"
@@ -54,16 +71,55 @@ def keys(*k):
     tmux("send-keys", "-t", SESSION, *k)
 
 
-def start(cwd, settings=None, cols=COLS, rows=ROWS):
-    # tmux hides the terminal's dark background from Claude Code, which then
-    # picks its light theme; say dark, as the person's terminal would
-    settings = json.dumps({"theme": "dark", **(settings or {})})
+def composer():
+    """The prompt line's text: the last row starting ❯."""
+    rows = [plain(l) for l in screen().split("\n") if plain(l).startswith("❯")]
+    return rows[-1][1:].strip() if rows else ""
+
+
+def submit(text):
+    """Type text into the prompt and send it. Early in a session a key can
+    arrive late or not at all, so wait for the text to show, then press Enter
+    until the prompt lets go of it."""
+    keys(text)
+    end = time.time() + 15
+    while text not in composer():
+        if time.time() > end:
+            raise SystemExit(f"{text!r} never reached the prompt:\n{screen()}")
+        time.sleep(0.3)
+    send(text)
+
+
+def send(text):
+    """Press Enter until the prompt, holding text, lets go of it."""
+    for _ in range(3):
+        keys("Enter")
+        end = time.time() + 3
+        while time.time() < end:
+            time.sleep(0.3)
+            if text not in composer():
+                return
+    raise SystemExit(f"Enter didn't send {text!r}:\n{screen()}")
+
+
+def start(cwd, options=None, cols=COLS, rows=ROWS):
+    """Claude Code in cwd, with flow from this checkout and `options` as its
+    settings (terminal, splitSide, ...)."""
+    settings = json.dumps({
+        # tmux hides the terminal's dark background from Claude Code, which
+        # then picks its light theme; say dark, as the person's terminal would
+        "theme": "dark",
+        # an installed flow would load beside this checkout's
+        "enabledPlugins": {"flow@flow": False},
+        # a --plugin-dir plugin reads its options under its bare name
+        "pluginConfigs": {"flow": {"options": options or {}}},
+    })
     tmux("kill-session", "-t", SESSION, check=False)
     tmux("new-session", "-d", "-s", SESSION, "-x", str(cols), "-y", str(rows), "-c", str(cwd))
     # Claude Code shows a tip under the prompt when tmux lacks these
     tmux("set", "-t", SESSION, "-g", "mouse", "on")
     tmux("set", "-t", SESSION, "-g", "focus-events", "on")
-    cmd = f"clear && claude --settings '{settings}'"
+    cmd = f"clear && claude --plugin-dir {shlex.quote(PLUGIN_ROOT)} --settings {shlex.quote(settings)}"
     keys(cmd, "Enter")
     end = time.time() + 30
     while time.time() < end:
@@ -75,7 +131,16 @@ def start(cwd, settings=None, cols=COLS, rows=ROWS):
             break
         time.sleep(0.5)
     wait_for(r"flow\s+│")  # the band's heading: the mod has loaded and read the repo
-    time.sleep(2)
+    # a key sent in the first seconds after that can be lost; probe until the
+    # prompt takes one, then clear it
+    end = time.time() + 30
+    while time.time() < end:
+        keys("C-u", "x")
+        time.sleep(0.7)
+        if re.search(r"^❯\s+x\s*$", screen(), re.M):
+            break
+    keys("C-u")
+    time.sleep(1)
 
 
 def lines():
@@ -147,19 +212,23 @@ def crop_cols(line, c0):
     return "".join(out)
 
 
-PLUGIN_ROOT = str(HERE.parent.parent)
 
 
 HEADER = re.compile(r"Claude Code v\d|with \w+ effort|^\s*[▐▝▘▛▜█]{2}")
 
 
 def tidy(ls, collapse=True):
-    """Paths as they're configured, not as this machine expands them, and
-    (with `collapse`) no run of more than one blank line."""
+    """Paths as they're configured, not as this machine expands them; flow
+    named as an install names it; an empty prompt in place of Claude Code's
+    rotating "Try ..." tip, so a retake changes only what changed; and (with
+    `collapse`) no run of more than one blank line."""
     out = []
     for line in ls:
         line = line.replace(PLUGIN_ROOT, "${CLAUDE_PLUGIN_ROOT}").replace(str(Path.home()), "~")
+        line = line.replace("flow@inline", "flow@flow")  # --plugin-dir's name for it
         line = re.sub(r" · Claude (Max|Pro|Team|Enterprise)\b", "", line)  # the account's plan, in the header
+        if re.match(r'❯\s+Try "', plain(line)):
+            line = line[:line.index("❯") + 1] + "\x1b[0m"
         if collapse and not plain(line).strip() and out and not plain(out[-1]).strip():
             continue
         out.append(line)
@@ -196,9 +265,7 @@ def shot_gate(out):
 
 def shot_status(out):
     start(REPO)
-    keys("/flow-status")
-    time.sleep(1)
-    keys("Enter")
+    submit("/flow-status")
     wait_for(r"other active tasks")
     time.sleep(1)
     ls = lines()
@@ -208,9 +275,7 @@ def shot_status(out):
 
 def pane(out, name, tab_key=None):
     start(REPO, cols=170, rows=50)
-    keys("/flow-pane")
-    time.sleep(1)
-    keys("Enter")
+    submit("/flow-pane")
     wait_for(r"Phases")
     if tab_key:
         keys(tab_key)
@@ -235,10 +300,8 @@ def shot_pane_tasks(out):
 
 
 def shot_setup(out):
-    start(REPO, {"pluginConfigs": {"flow@flow": {"options": {"splitSide": "left", "splitSize": 30}}}})
-    keys("/flow-term setup")
-    time.sleep(1)
-    keys("Enter")
+    start(REPO, {"splitSide": "left", "splitSize": 30})
+    submit("/flow-term setup")
     wait_for(r"✓ ready|▲ .*\n.*▸", 120)
     time.sleep(1)
     ls = lines()
@@ -248,9 +311,7 @@ def shot_setup(out):
 
 def shot_blocked(out):
     start(WORKTREE)
-    keys("Use the Edit tool to add a one-line comment at the top of src/server.ts saying what it does.")
-    time.sleep(1)
-    keys("Enter")
+    submit("Use the Edit tool to add a one-line comment at the top of src/server.ts saying what it does.")
     wait_for(r"flow blocked", 180)
     time.sleep(0.3)
     # the refused edit in the transcript, down to the straw band below it
@@ -282,9 +343,15 @@ def shot_gif(out):
     start(WORKTREE, cols=GIF_COLS, rows=GIF_ROWS + 6)
     grab(2.5)
     keys("C-x"); time.sleep(0.3); keys("Tab"); time.sleep(0.8)
-    keys("a"); time.sleep(1.2)
+    keys("a")
+    end = time.time() + 10
+    while not composer() or composer().startswith('Try "'):  # the drafted reply, not the placeholder
+        if time.time() > end:
+            raise SystemExit(f"`a` drafted nothing:\n{screen()}")
+        time.sleep(0.3)
+    time.sleep(0.8)
     grab(2.5)
-    keys("Enter")
+    send(composer())
     end = time.time() + 240
     while time.time() < end:
         time.sleep(1)
@@ -323,7 +390,7 @@ GIF_COLS, GIF_ROWS = 104, 26
 def shot_split(out):
     """`t` beside the session: flow's terminal setting at tmux, a split on the
     right at 40%, and a command run there, both panes captured side by side."""
-    start(REPO, {"pluginConfigs": {"flow@flow": {"options": {"terminal": "tmux", "splitSide": "right", "splitSize": 40}}}},
+    start(REPO, {"terminal": "tmux", "splitSide": "right", "splitSize": 40},
           cols=190, rows=26)
     first = tmux("display", "-p", "-t", SESSION, "#{pane_id}").strip()
     keys("C-x"); time.sleep(0.3); keys("Tab"); time.sleep(0.8); keys("t")
@@ -340,6 +407,8 @@ def shot_split(out):
     time.sleep(1)
     cap = lambda p: tmux("capture-pane", "-p", "-e", "-N", "-t", p).split("\n")
     left, right = cap(first), cap(other)
+    # the command's output, not the shell prompt after it (that's this machine's)
+    right = right[:index(right, r"acme-api-audit-log", last=True) + 1]
     bottom = index(left, r"^─{30,}", last=True)  # the composer's lower rule; the status line goes
     width = max(len(plain(l)) for l in left[:bottom + 1])
     rows = []
@@ -359,17 +428,93 @@ SHOTS = {
 }
 
 
+FONT_URL = "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip"
+FONT_TTF = "fonts/ttf/JetBrainsMono-Regular.ttf"
+FONT_SHA256 = "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f"
+FONT_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "flow/fonts/JetBrainsMono-Regular.ttf"
+
+
+def font():
+    """FONT if set, else the pinned JetBrains Mono, fetched once and checked
+    against its hash, so every machine renders the same glyphs."""
+    if os.environ.get("FONT"):
+        return Path(os.environ["FONT"])
+    if not FONT_CACHE.is_file():
+        print(f"fetching JetBrains Mono 2.304 to {FONT_CACHE}")
+        with urllib.request.urlopen(FONT_URL, timeout=60) as r:
+            ttf = zipfile.ZipFile(io.BytesIO(r.read())).read(FONT_TTF)
+        if hashlib.sha256(ttf).hexdigest() != FONT_SHA256:
+            raise SystemExit(f"{FONT_URL}: {FONT_TTF} doesn't match its pinned hash")
+        FONT_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        FONT_CACHE.write_bytes(ttf)
+    return FONT_CACHE
+
+
+def chrome():
+    """The browser render.sh would use: CHROME, else Chrome where macOS
+    installs it, else a Chrome or Chromium on PATH."""
+    if os.environ.get("CHROME"):
+        return os.environ["CHROME"]
+    mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    if Path(mac).exists():
+        return mac
+    return next(filter(None, map(shutil.which, (
+        "google-chrome", "google-chrome-stable", "chromium", "chromium-browser"))), None)
+
+
+def missing(shots):
+    """What this run needs and doesn't have, each with its fix."""
+    brew = sys.platform == "darwin"
+    need = [
+        ("tmux", shutil.which("tmux"), "brew install tmux" if brew else "install tmux from your package manager"),
+        ("claude", shutil.which("claude"), "install Claude Code: npm install -g @anthropic-ai/claude-code"),
+        # a Homebrew cask is also called freeze; this is Charm's CLI
+        ("freeze", shutil.which("freeze"), "brew install charmbracelet/tap/freeze" if brew
+         else "go install github.com/charmbracelet/freeze@latest"),
+        ("Chrome or Chromium", chrome(), "install Google Chrome, or set CHROME to a Chromium binary"),
+    ]
+    if "gif" in shots:
+        need.append(("ffmpeg", shutil.which("ffmpeg"), "brew install ffmpeg" if brew
+                     else "install ffmpeg from your package manager"))
+    return [(name, fix) for name, found, fix in need if not found]
+
+
 def main(argv):
-    if not argv:
-        raise SystemExit(__doc__)
-    out = Path(argv[0]).resolve()
+    ap = argparse.ArgumentParser(description="Retake the README's screenshots.")
+    ap.add_argument("shots", nargs="*", metavar="SHOT", help=f"any of: {' '.join(SHOTS)} (default: all)")
+    ap.add_argument("--out", type=Path, default=PLUGIN_ROOT_PATH / "docs/images",
+                    help="where the images go (default: docs/images)")
+    ap.add_argument("--check", action="store_true", help="list what's missing, then stop")
+    args = ap.parse_args(argv)
+    unknown = [s for s in args.shots if s not in SHOTS]
+    if unknown:
+        ap.error(f"unknown shot {' '.join(unknown)}; shots are: {' '.join(SHOTS)}")
+    shots = args.shots or list(SHOTS)
+    skipped = []
+    if "setup" in shots and not os.environ.get("ITERM_SESSION_ID"):
+        shots.remove("setup")
+        skipped.append("setup: not run inside iTerm, so /flow-term setup's checklist would show failures")
+
+    gaps = missing(shots)
+    for name, fix in gaps:
+        print(f"✗ {name}: {fix}")
+    for why in skipped:
+        print(f"– skipping {why}")
+    if args.check:
+        font_note = os.environ.get("FONT") or (FONT_CACHE if FONT_CACHE.is_file() else "fetched on first run")
+        print(f"font: {font_note}\ndemo repo: {DEMO}")
+        if not gaps:
+            print(f"✓ ready: {' '.join(shots)}")
+        raise SystemExit(1 if gaps else 0)
+    if gaps:
+        raise SystemExit("install what's missing above, then run again")
+
+    os.environ["FONT"] = str(font())
+    out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("FONT", "")
-    if not os.environ["FONT"]:
-        raise SystemExit("set FONT to a JetBrains Mono .ttf (see render.sh)")
     subprocess.run([str(HERE / "make-demo-repo.sh"), str(DEMO)], check=True, stdout=subprocess.DEVNULL)
     try:
-        for name in argv[1:] or SHOTS:
+        for name in shots:
             SHOTS[name](out)
     finally:
         tmux("kill-session", "-t", SESSION, check=False)

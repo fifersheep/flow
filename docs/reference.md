@@ -34,7 +34,8 @@ task's `workflow.md` it checks the phase change:
 
 On any other file in the repo, it refuses code edits while the task on that
 branch is before implementation. Flow's own files (the task folder,
-`.flow.md`) stay writable.
+`.flow.md`) stay writable, and so does anything outside the repo, such as
+`/tmp`.
 
 A Bash command is held to the same rule for the files it visibly writes.
 `hooks/flow_shell.py` reads the command before it runs (quotes, `&&`, `;`,

@@ -1,8 +1,37 @@
 {
   "name": "flow",
   "description": "Phased development workflow: setup → research → plan → gated plan review → implement → review-against-plan → gated report → wind-down. Durable file-based state, resumable from any session. Plus /flow shape: upstream ticket shaping (brainstorm → agreed tracker tickets).",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "author": { "name": "Scott Laing" },
   "keywords": ["workflow", "planning", "review", "gates", "state-machine", "shaping", "tickets"],
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "terminal": {
+      "type": "string",
+      "title": "Terminal",
+      "description": "What the flow mod's terminal button and /flow-term open in a task's worktree. iterm-split and tmux split the pane Claude Code runs in, side by side.",
+      "default": "iterm-split",
+      "options": ["iterm-split", "iterm-tab", "iterm-window", "terminal", "warp", "tmux"]
+    },
+    "splitSide": {
+      "type": "string",
+      "title": "Split side",
+      "description": "Where an iterm-split or tmux terminal opens beside Claude Code's pane. Right and bottom at 50% need nothing more; any other split uses iTerm's Python API (Settings → General → Magic → Enable Python API), which flow sets up in ~/.cache/flow on first use.",
+      "default": "right",
+      "options": ["right", "left", "top", "bottom"]
+    },
+    "splitSize": {
+      "type": "number",
+      "title": "Split size (%)",
+      "description": "The new pane's share of Claude Code's pane, 10 to 90.",
+      "default": 50
+    },
+    "editor": {
+      "type": "string",
+      "title": "Editor",
+      "description": "What the flow mod's editor button and /flow-code open a task's worktree in.",
+      "default": "vscode",
+      "options": ["vscode", "cursor", "zed"]
+    }
+  }
 }

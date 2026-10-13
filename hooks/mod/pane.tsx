@@ -5,9 +5,9 @@
 import type { RenderElement } from 'claude-code'
 
 import type { PaneTab, Snapshot, Task } from '../../types'
-import { Bar, GateRow, ink, Rule } from './look'
+import { Bar, GateRow, ink, OpenButtons, Rule } from './look'
 import type { Actions, Els } from './look'
-import { bar, focusTask, GLYPH, glyphOf, meta, plural, showsProgress, steps, waitingGate } from './model'
+import { bar, focusTask, GLYPH, glyphOf, meta, openTarget, plural, showsProgress, steps, taskTarget, waitingGate } from './model'
 
 const TABS: { id: PaneTab; label: string; hotkey: string }[] = [
   { id: 'progress', label: 'Progress', hotkey: '1' },
@@ -25,6 +25,7 @@ export function paneTree(E: Els, s: Snapshot | null, tab: PaneTab, picked: strin
     <E.Box flexDirection="column">
       {Tabs(E, act, tab, task)}
       <E.Text dimColor>{'─'.repeat(width)}</E.Text>
+      {s && OpenRow(E, act, s, task)}
       {tab !== 'tasks' && task && Heading(E, task)}
       {tab === 'tasks' ? TasksTab(E, act, s, task, width) : !task ? NoTask(E, s) : body(E, act, tab, task, width)}
     </E.Box>
@@ -52,6 +53,18 @@ function Tabs(E: Els, act: Actions, tab: PaneTab, task: Task | null): RenderElem
           </E.Button>
         )
       })}
+    </E.Box>
+  )
+}
+
+/** Where the shown task's worktree is, and a terminal or the editor there. */
+function OpenRow(E: Els, act: Actions, s: Snapshot, task: Task | null): RenderElement | null {
+  const at = task ? taskTarget(s, task) : openTarget(s)
+  if ('error' in at) return null
+  return (
+    <E.Box flexDirection="row" justifyContent="space-between" columnGap={2} marginBottom={1}>
+      <E.Text dimColor wrap="truncate-start">{at.dir}</E.Text>
+      <E.Box flexDirection="row" columnGap={2} flexShrink={0}>{OpenButtons(E, act, at, 'pane')}</E.Box>
     </E.Box>
   )
 }

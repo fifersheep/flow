@@ -5,9 +5,9 @@
 import type { RenderElement, RenderPropsOf } from 'claude-code'
 
 import type { Snapshot } from '../../types'
-import { Bar, GateRow, ink, Rail } from './look'
+import { Bar, GateRow, ink, OpenButtons, Rail } from './look'
 import type { Actions, Els } from './look'
-import { GLYPH, hereTask, plural, statusLine, waitingGate } from './model'
+import { GLYPH, hereTask, openTarget, plural, statusLine, waitingGate } from './model'
 
 const ROWS = 5 // frame (2) + heading, rail, next
 
@@ -22,7 +22,8 @@ export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['Above
     return (
       <E.Box flexDirection="row" columnGap={2}>
         <E.Text dimColor>{`flow · ${plural(elsewhere.length, 'active task')} on other branches`}</E.Text>
-        <E.Button key="band-tasks" label="tasks" hotkey="t" plain dimColor onPress={() => act.openPane('tasks')} />
+        <E.Button key="band-tasks" label="tasks" hotkey="o" plain dimColor onPress={() => act.openPane('tasks')} />
+        {OpenButtons(E, act, openTarget(s), 'band')}
       </E.Box>
     )
   }
@@ -48,17 +49,20 @@ export function bandTree(E: Els, s: Snapshot | null, props: RenderPropsOf['Above
         {Bar(E, task)}
       </E.Box>
       {Rail(E, task, Math.max(20, props.bodyColumns - 4))}
-      {gate ? (
-        GateRow(E, act, task, gate)
-      ) : (
-        <E.Box flexDirection="row" justifyContent="space-between" columnGap={2}>
+      <E.Box flexDirection="row" justifyContent="space-between" columnGap={2}>
+        {gate ? (
+          GateRow(E, act, task, gate)
+        ) : (
           <E.Text wrap="truncate-end">
             <E.Text color={E.paint.current} bold>{`${GLYPH.next} next  `}</E.Text>
             <E.Text>{task.nextAction || '—'}</E.Text>
           </E.Text>
-          <E.Button key="band-open" label="pane" hotkey="o" plain dimColor onPress={() => act.openPane('progress', task.folder)} />
+        )}
+        <E.Box flexDirection="row" columnGap={2} flexShrink={0}>
+          {!gate && <E.Button key="band-open" label="pane" hotkey="o" plain dimColor onPress={() => act.openPane('progress', task.folder)} />}
+          {OpenButtons(E, act, openTarget(s), 'band')}
         </E.Box>
-      )}
+      </E.Box>
     </E.Box>
   )
 }

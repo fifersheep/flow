@@ -6,6 +6,9 @@
 //   4. here         toasts when a phase moves, a gate opens, or the validator blocks
 //   5. here + spinner.tsx  the status line and the spinner carry the phase
 //
+// and, from the band, the pane, /flow-term and /flow-code, a terminal or the
+// editor opened in a task's worktree (hooks/flow_open.py does the opening).
+//
 // Every view reads one snapshot, printed by hooks/flow_status.py on the same
 // parsing the validator uses. Mods can be switched off (policy, a rollout,
 // `claude -p`), so nothing here may be load-bearing: the gates stay in
@@ -21,7 +24,8 @@ import type { PaneTab, Snapshot } from '../../types'
 import { bandTree } from './band'
 import { PANE } from './look'
 import type { Actions, Els } from './look'
-import { blockReason, changes, focusTask, GLYPH, hereTask, paletteFor, statusPin, statusReport } from './model'
+import { blockReason, changes, EDITOR_NAME, focusTask, GLYPH, hereTask, openTarget, paletteFor, statusPin, statusReport } from './model'
+import type { OpenKind } from './model'
 import { paneTree } from './pane'
 import { spinnerTree } from './spinner'
 import { COMMAND, FENCE, statusRow } from './status'
@@ -41,6 +45,10 @@ let isDirty = true
 let hasTasks = false
 let running: Promise<void> | null = null
 let pinned: string | undefined | null = null // null: nothing pinned by this load of the module
+let terminalApp = 'iterm-split' // the plugin's settings, read as the module loads
+let editorApp = 'vscode'
+let splitSide = 'right'
+let splitSize = 50
 
 async function load($: EngineInterface): Promise<void> {
   const cwd = await $.session.cwd()
@@ -98,19 +106,74 @@ function kit($: EngineInterface, e: ResolveInput & { surface: string }): Els {
   return { ...$.ui.resolve(e), paint: paletteFor(e.surface) }
 }
 
+type Opened = { ok: boolean; message: string; setup?: boolean; needsSetup?: boolean; lines?: string[] }
+
+/** flow_open.py, with the settings: `setup` or a kind and a folder. */
+async function opener($: EngineInterface, args: string[], timeoutMs = 30000): Promise<Opened> {
+  const settings = ['--side', splitSide, '--size', String(splitSize)]
+  try {
+    const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_open.py`, ...args, ...settings], { timeoutMs })
+    return JSON.parse(run.stdout) as Opened
+  } catch {
+    return { ok: false, message: 'flow_open.py could not be run' }
+  }
+}
+
+async function openIn($: EngineInterface, kind: OpenKind, dir: string): Promise<Opened> {
+  const args = [kind, dir, '--app', kind === 'terminal' ? terminalApp : editorApp]
+  if (kind === 'terminal' && (await opener($, [...args, '--dry-run'])).setup) {
+    $.ui.toast(`flow ${GLYPH.next} setting up iTerm's Python API for this split — one time, a few seconds…`)
+  }
+  // the first split AppleScript can't make installs the helper package: allow for it
+  return opener($, args, 300000)
+}
+
+/** A button's open: the outcome is said in a toast, a fallback or a failure marked. */
+async function openFromButton($: EngineInterface, kind: OpenKind, dir: string): Promise<void> {
+  const r = await openIn($, kind, dir)
+  if (!r.ok) $.ui.toast(`${GLYPH.blocked} flow: ${r.message}`)
+  else $.ui.toast(`flow ${r.needsSetup ? GLYPH.deviation : GLYPH.next} ${r.message}`)
+}
+
+/** /flow-term setup: the checklist the terminal setting needs, in a fenced block. */
+async function terminalSetup($: EngineInterface): Promise<{ text: string }> {
+  const r = await opener($, ['setup', '--app', terminalApp], 300000)
+  const lines = r.lines ?? [`${GLYPH.blocked} ${r.message}`]
+  return { text: [FENCE, ...lines, FENCE].join('\n') }
+}
+
+/** /flow-term and /flow-code: the named task's worktree, else the session's. */
+async function openFromCommand($: EngineInterface, kind: OpenKind, args: string): Promise<{ text: string }> {
+  if (kind === 'terminal' && args.trim().toLowerCase() === 'setup') return terminalSetup($)
+  await refresh($)
+  const at = openTarget(await read($, snapshot), args)
+  if ('error' in at) return { text: `${GLYPH.blocked} ${at.error}` }
+  const r = await openIn($, kind, at.dir)
+  const note = at.note ? ` (${at.note})` : ''
+  const glyph = !r.ok ? GLYPH.blocked : r.needsSetup ? GLYPH.deviation : GLYPH.next
+  return { text: `${glyph} ${r.message}${r.ok ? note : ''}` }
+}
+
 function actions($: EngineInterface): Actions {
   return {
     openPane: (tab, folder) => void openPane($, tab, folder),
     setTab: tab => void setTab($, tab),
     pick: folder => void pick($, folder),
     draft: text => void draft($, text),
+    open: (kind, dir) => void openFromButton($, kind, dir),
+    editorName: EDITOR_NAME[editorApp] ?? editorApp,
   }
 }
 
 // Nothing here guards anything, so each .catch fails open: a hook that throws
 // lets the event go on as if the mod weren't there, and where it had already
 // called next(e), next(e) replays that answer, so nothing runs twice.
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  if (typeof options.terminal === 'string' && options.terminal) terminalApp = options.terminal
+  if (typeof options.editor === 'string' && options.editor) editorApp = options.editor
+  if (typeof options.splitSide === 'string' && options.splitSide) splitSide = options.splitSide
+  if (typeof options.splitSize === 'number') splitSize = options.splitSize
+
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({
@@ -122,6 +185,18 @@ export const register: Register = on => {
       name: 'flow-pane',
       description: 'Open the flow pane: progress, plan, decisions, deviations, tasks',
       argumentHint: '[progress|plan|decisions|deviations|tasks]',
+      immediate: true,
+    })
+    await $.command.register({
+      name: 'flow-term',
+      description: "Open a terminal in the flow task's worktree, beside this session (an iTerm split unless the plugin's settings say otherwise)",
+      argumentHint: '[task | setup]',
+      immediate: true,
+    })
+    await $.command.register({
+      name: 'flow-code',
+      description: "Open the flow task's worktree in the editor (VS Code unless the plugin's settings say otherwise)",
+      argumentHint: '[task]',
       immediate: true,
     })
     if (!e.isInteractive) return started
@@ -200,10 +275,21 @@ export const register: Register = on => {
     return { text: [FENCE, ...statusReport(await read($, snapshot)), FENCE].join('\n') }
   }).catch(() => ({ text: `${GLYPH.blocked} flow-status: the task state could not be read` }))
 
+  // /flow-status, and /flow-term setup's checklist, coloured line by line
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
-    if (!e.props.command.endsWith(COMMAND) || e.props.isErrored) return next(e)
+    const isMine = e.props.command.endsWith(COMMAND) || (e.props.command.endsWith('flow-term') && e.props.text.includes(FENCE))
+    if (!isMine || e.props.isErrored) return next(e)
     return statusRow(kit($, e), e.props.text)
   })
+
+  // A terminal or the editor in a worktree, by command; the buttons are in look.tsx
+  on('command.run', { command: 'flow-term' }, async ($, e) => {
+    return openFromCommand($, 'terminal', e.args)
+  }).catch(() => ({ text: `${GLYPH.blocked} flow-term: the terminal could not be opened` }))
+
+  on('command.run', { command: 'flow-code' }, async ($, e) => {
+    return openFromCommand($, 'editor', e.args)
+  }).catch(() => ({ text: `${GLYPH.blocked} flow-code: the editor could not be opened` }))
 
   // Mod 5: the spinner (the status line is set by each refresh)
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {

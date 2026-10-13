@@ -46,3 +46,38 @@ CI (`.github/workflows/version-bump.yml`) runs the same script on every PR and
 fails it when the version is unchanged or the manifests disagree. Escape hatch,
 user-only: label the PR `no-version-bump`. The check must be marked required in
 branch protection for `main` to actually block a merge.
+
+## README images
+
+The images in `docs/images/` are captured from a live Claude Code session,
+never drawn by hand. Retake them in the PR that changes what they show:
+
+| Image | Shot | Shows | Retake after changing |
+|---|---|---|---|
+| `hero.png` | `hero` | the rail mid-implementation | the band (`hooks/mod/band.tsx`, `look.tsx`), the snapshot (`hooks/flow_status.py`) |
+| `gate.png` | `gate` | the rail at gate 1 | the band, gate actions |
+| `gate.gif` | `gif` | approving gate 1 (one model turn) | the band, gate actions, phase toasts |
+| `blocked.png` | `blocked` | a refused edit (one model turn) | the validator's message, the refusal toast |
+| `pane-progress.png`, `pane-tasks.png` | `pane-progress`, `pane-tasks` | `/flow-pane` | `hooks/mod/pane.tsx` |
+| `status.png` | `status` | `/flow-status` | `hooks/mod/status.tsx`, `hooks/flow_status.py` |
+| `split.png` | `split` | `t` opening a terminal | `hooks/flow_open.py`, the band's key hints |
+| `setup.png` | `setup` | `/flow-term setup` (iTerm only) | `hooks/flow_iterm.py`, the setup checklist |
+
+    scripts/demo/shoot.py --check     # what's missing, with install commands
+    scripts/demo/shoot.py             # every shot, into docs/images (~6 min)
+    scripts/demo/shoot.py gate hero   # just these
+
+- It loads flow from this checkout, so run it from the branch or worktree
+  being changed, after the code change.
+- It needs tmux, freeze, Chrome or Chromium, claude and ffmpeg. The font is
+  fetched and hash-checked on first run.
+- The `setup` shot runs only inside iTerm with its Python API on. Elsewhere it
+  is skipped and the old image stays.
+- Seven shots are byte-identical from run to run, so if one of their files
+  changed, the picture changed. `blocked` and `gif` include a model turn and
+  differ every run, so retake them only when what they show has changed.
+- Open every image it wrote before committing. Each one should show what the
+  README text next to it says, with no stray toasts, a light theme or cut-off
+  rows. If the README text no longer matches the UI, fix the text too.
+- The demo repo is rebuilt from `scripts/demo/make-demo-repo.sh` each run.
+  Change the fictional tasks there, not by hand.

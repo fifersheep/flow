@@ -151,11 +151,17 @@ validator doesn't stop an edit that does.
 
 ## What the gates do and don't cover
 
-The validator watches Claude's Write and Edit tools. Through them, a code edit
-before gate 1 is refused, as is a phase change that skips a step or lacks its
-gate line. It doesn't police shell commands: a `sed` or a redirect run through
-Bash can still change a file. The gates stop the normal path; they aren't a
-sandbox.
+The validator watches Claude's Write and Edit tools and its shell commands.
+Through Write and Edit, a code edit before gate 1 is refused, as is a phase
+change that skips a step or lacks its gate line. A shell command is read
+before it runs, and the common ways of writing a file (a redirect, `tee`,
+`sed -i`, `mv`/`cp`/`rm`/`touch`, `git apply`, `git checkout -- <path>`, a
+`python -c` that opens a file for writing) are held to the same rule. Reads,
+test runs, git, installs and writes outside the repo pass.
+
+That reading is a heuristic. A path in a variable, a script, `xargs` or a build
+tool can still change a file, and a command it can't parse is let through. The
+gates stop the normal path and its common detours; they aren't a sandbox.
 
 More detail: [docs/reference.md](docs/reference.md), and the design in
 [docs/specs/](docs/specs/2026-07-04-flow-workflow-design.md).

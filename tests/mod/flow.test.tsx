@@ -132,6 +132,12 @@ describe('model', () => {
     expect(blockReason('some other failure')).toBe(undefined)
   })
 
+  test("for Bash, blockReason takes only the lockdown's refusal, not the command's own output", async () => {
+    const text = "PreToolUse:Bash hook error: flow: task 'add-widget' is in phase 'planning' — code edits are locked until gate 1"
+    expect(blockReason(text, 'Bash')).toBe("task 'add-widget' is in phase 'planning' — code edits are locked until gate 1")
+    expect(blockReason('Error: workflow: ci failed', 'Bash')).toBe(undefined)
+  })
+
   test('every /flow-status line carries the colour of its glyph', async () => {
     const lines = statusReport(snap([task({ deviations: ['x'] })]))
     expect(lines[0]).toBe('▌ add-widget — Add the widget')
@@ -336,6 +342,13 @@ describe('mod 4: toasts', () => {
     on('tool.call', () => ({ deny: "flow: task 'add-widget' is in phase 'planning' — code edits are locked" }))
     await $.tool.call({ tool: 'Edit', file_path: '/repo/a.ts', old_string: 'a', new_string: 'b' })
     expect(seen.toasts).toEqual(["⛔ flow blocked: task 'add-widget' is in phase 'planning' — code edits are locked"])
+  })
+
+  test("the validator's refusal of a shell write is toasted", async ($, on) => {
+    const seen = world(on, { current: snap([task()]) })
+    on('tool.call', () => ({ deny: "flow: task 'add-widget' is in phase 'planning' — code edits are locked; this command writes a.ts (via >)" }))
+    await $.tool.call({ tool: 'Bash', command: 'echo x > a.ts' })
+    expect(seen.toasts).toEqual(["⛔ flow blocked: task 'add-widget' is in phase 'planning' — code edits are locked; this command writes a.ts (via >)"])
   })
 })
 

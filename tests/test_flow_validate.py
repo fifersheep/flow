@@ -15,6 +15,12 @@ def payload(tool, file_path, content=None, old=None, new=None, replace_all=False
     if old is not None: ti.update(old_string=old, new_string=new, replace_all=replace_all)
     return {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": ti}
 
+def bash(command, cwd=None):
+    p = {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+         "tool_input": {"command": command}}
+    if cwd is not None: p["cwd"] = str(cwd)
+    return p
+
 class Repo:
     """Temp git repo fixture."""
     def __init__(self):
@@ -37,8 +43,13 @@ class TestNoOpPaths(unittest.TestCase):
         self.addCleanup(self.repo.destroy)
 
     def test_non_edit_tool_allowed(self):
-        r = run_hook({"hook_event_name": "PreToolUse", "tool_name": "Bash",
-                      "tool_input": {"command": "ls"}}, self.repo.dir)
+        r = run_hook({"hook_event_name": "PreToolUse", "tool_name": "Read",
+                      "tool_input": {"file_path": str(self.repo.dir / "a")}},
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 0)
+
+    def test_shell_with_no_tasks_dir_allowed(self):
+        r = run_hook(bash("echo x > src/a.py", self.repo.dir), self.repo.dir)
         self.assertEqual(r.returncode, 0)
 
     def test_write_with_no_tasks_dir_allowed(self):
@@ -211,6 +222,102 @@ class TestLockdown(unittest.TestCase):
         self.assertEqual(self.edit_code().returncode, 2)
 
 
+class TestShellLockdown(unittest.TestCase):
+    """Bash is held to the Write/Edit rule for the writes it visibly makes."""
+    def setUp(self):
+        self.repo = Repo()
+        self.addCleanup(self.repo.destroy)
+        self.repo.write("src/a.py", "x")
+
+    def activate(self, phase, branch="main"):
+        text = wf(phase).replace("branch: main", f"branch: {branch}")
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
+
+    def run_bash(self, command, cwd=None):
+        return run_hook(bash(command, self.repo.dir if cwd is None else cwd),
+                        self.repo.dir)
+
+    def test_the_real_bypass_is_blocked_naming_file_and_gate(self):
+        self.activate("planning")
+        r = self.run_bash("printf 'x' > src/a.py.tmp && mv src/a.py.tmp src/a.py")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("flow: task 'demo' is in phase 'planning' — code edits "
+                      "are locked until gate 1 (plan approval)", r.stderr)
+        self.assertIn("this command writes src/a.py.tmp (via >)", r.stderr)
+
+    def test_common_write_forms_blocked_before_gate1(self):
+        self.activate("research")
+        for cmd in ("echo x >> src/a.py", "echo x | tee src/b.py",
+                    "sed -i '' 's/x/y/' src/a.py", "perl -pi -e 's/x/y/' src/a.py",
+                    "rm src/a.py", "touch src/b.py", "mkdir src/new",
+                    "cp /tmp/x src/a.py", "ln -s a.py src/b.py",
+                    "dd if=/dev/zero of=src/a.py count=1", "git apply /tmp/x.patch",
+                    "patch -p1 < /tmp/x.patch", "git checkout -- src/a.py",
+                    "git restore src/a.py",
+                    "python3 -c \"open('src/a.py', 'w').write('y')\"",
+                    "cat > src/a.py <<'EOF'\nprint(1)\nEOF"):
+            self.assertEqual(self.run_bash(cmd).returncode, 2, cmd)
+
+    def test_reporting_blocks_until_gate2(self):
+        self.activate("reporting")
+        r = self.run_bash("echo x > src/a.py")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("gate 2 (merge approval)", r.stderr)
+
+    def test_read_only_shell_allowed(self):
+        self.activate("planning")
+        for cmd in ("cat src/a.py", "grep -rn x src", "rg x", "ls -la src",
+                    "git log --oneline", "git diff", "git status",
+                    "python3 -m unittest discover tests > /tmp/flow-test.out 2>&1",
+                    "ls src 2>/dev/null", "echo oops >&2", "grep x <<< 'a > b'",
+                    "cat src/a.py | sort | uniq -c", 'grep ">" src/a.py',
+                    "git switch -c flow/other", "git worktree list"):
+            self.assertEqual(self.run_bash(cmd).returncode, 0, cmd)
+
+    def test_flow_files_stay_writable(self):
+        self.activate("planning")
+        task = "docs/tasks/2026-07-05-demo"
+        for cmd in (f"cat > {task}/research.md <<'EOF'\n# Research\nEOF",
+                    f"echo '- note' >> {task}/workflow.md",
+                    f"mkdir -p {task}/shots", f"cd {task} && touch plan.md",
+                    "echo 'verify: make test' >> .flow.md",
+                    f"git add {task} && git commit -m 'flow: research'"):
+            self.assertEqual(self.run_bash(cmd).returncode, 0, cmd)
+
+    def test_writes_outside_the_repo_allowed(self):
+        self.activate("planning")
+        scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, scratch, ignore_errors=True)
+        for cmd in ("echo x > /tmp/flow-scratch.txt", f"touch {scratch}/a.py",
+                    f"cp src/a.py {scratch}/", f"cd {scratch} && echo x > b.py"):
+            self.assertEqual(self.run_bash(cmd).returncode, 0, cmd)
+
+    def test_cwd_comes_from_the_hook_input(self):
+        self.activate("planning")
+        src = self.repo.dir / "src"
+        self.assertEqual(self.run_bash("echo x > a.py", cwd=src).returncode, 2)
+        task = self.repo.dir / "docs/tasks/2026-07-05-demo"
+        self.assertEqual(self.run_bash("echo x > notes.md", cwd=task).returncode, 0)
+
+    def test_without_cwd_the_project_dir_is_used(self):
+        self.activate("planning")
+        r = run_hook(bash("echo x > src/a.py"), self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+
+    def test_implementation_and_forced_and_other_branch_allowed(self):
+        self.activate("implementation")
+        self.assertEqual(self.run_bash("echo x > src/a.py").returncode, 0)
+        self.activate("planning", branch="feature/other")
+        self.assertEqual(self.run_bash("echo x > src/a.py").returncode, 0)
+        text = wf("planning").replace("branch: main", "branch: main\nforce: true")
+        self.repo.write("docs/tasks/2026-07-05-demo/workflow.md", text)
+        self.assertEqual(self.run_bash("echo x > src/a.py").returncode, 0)
+
+    def test_unparseable_command_allowed(self):
+        self.activate("planning")
+        self.assertEqual(self.run_bash("echo 'x > src/a.py").returncode, 0)
+
+
 class TestTemplateGate(unittest.TestCase):
     """The shipped template's example comment must not satisfy gate 1."""
     def test_shipped_template_does_not_satisfy_gate1(self):
@@ -329,6 +436,16 @@ class TestWorktreeRoot(unittest.TestCase):
         r = run_hook(payload("Write", self.wt / "src" / "a.py", content="x"),
                      self.repo.dir)
         self.assertEqual(r.returncode, 2)
+
+    def test_shell_lockdown_applies_inside_worktree(self):
+        r = run_hook(bash("echo x > .worktrees/flow-demo/src/a.py", self.repo.dir),
+                     self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+        r = run_hook(bash("echo x > src/a.py", self.wt), self.repo.dir)
+        self.assertEqual(r.returncode, 2)
+        # main's own files aren't locked: the task is on flow/demo
+        r = run_hook(bash("echo x > src/a.py", self.repo.dir), self.repo.dir)
+        self.assertEqual(r.returncode, 0)
 
     def test_state_machine_applies_inside_worktree(self):
         p = self.wt / "docs" / "tasks" / "2026-07-05-demo" / "workflow.md"

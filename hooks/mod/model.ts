@@ -166,6 +166,15 @@ export function statusReport(s: Snapshot | null): string[] {
   return lines
 }
 
+/**
+ * A worktree as the Tasks tab names it: beside the repo's root it reads
+ * `../acme-api-audit-log`, and elsewhere in full.
+ */
+export function worktreeLabel(worktree: string, root: string): string {
+  const parent = root.slice(0, root.lastIndexOf('/') + 1)
+  return parent.length > 1 && worktree.startsWith(parent) ? `../${worktree.slice(parent.length)}` : worktree
+}
+
 export function meta(task: Task): string {
   return [task.mode, task.ticketId, task.branch && `branch ${task.branch}`, task.updated && `updated ${task.updated}`]
     .filter(Boolean)

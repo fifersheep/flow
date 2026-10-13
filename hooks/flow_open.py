@@ -243,6 +243,13 @@ def open_path(kind, app, path, side=DEFAULT_SIDE, size=DEFAULT_SIZE, dry_run=Fal
 FIX = "      ▸ "
 
 
+def tilde(path):
+    """A path under the home folder as ~/…, the way the person would type it."""
+    home = str(Path.home())
+    p = str(path)
+    return "~" + p[len(home):] if p == home or p.startswith(home + os.sep) else p
+
+
 def setup(app, side, size, platform=sys.platform, env=os.environ):
     """/flow-term setup: what the terminal setting's split needs, and each fix.
 
@@ -292,7 +299,7 @@ def setup(app, side, size, platform=sys.platform, env=os.environ):
 
     python = venv_python(env)
     if has_package(python):
-        lines += [f"  ✓ helper package in {python.parent.parent}"]
+        lines += [f"  ✓ helper package in {tilde(python.parent.parent)}"]
     else:
         why = ensure_venv(python)
         if why:
@@ -300,7 +307,7 @@ def setup(app, side, size, platform=sys.platform, env=os.environ):
                       FIX + "check the network (it comes from PyPI), then run /flow-term setup again",
                       "  ○ connection — waits on the package", fallback]
             return {"ok": False, "lines": lines}
-        lines += [f"  ✓ helper package installed in {python.parent.parent}"]
+        lines += [f"  ✓ helper package installed in {tilde(python.parent.parent)}"]
 
     why = run([str(python), str(ITERM_HELPER), "--check", sid])
     if why:

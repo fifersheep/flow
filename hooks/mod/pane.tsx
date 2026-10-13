@@ -7,7 +7,7 @@ import type { RenderElement } from 'claude-code'
 import type { PaneTab, Snapshot, Task } from '../../types'
 import { Bar, GateRow, ink, OpenButtons, Rule } from './look'
 import type { Actions, Els } from './look'
-import { bar, focusTask, GLYPH, glyphOf, meta, openTarget, plural, showsProgress, steps, taskTarget, waitingGate } from './model'
+import { bar, focusTask, GLYPH, glyphOf, meta, openTarget, plural, showsProgress, steps, taskTarget, waitingGate, worktreeLabel } from './model'
 
 const TABS: { id: PaneTab; label: string; hotkey: string }[] = [
   { id: 'progress', label: 'Progress', hotkey: '1' },
@@ -215,15 +215,18 @@ function TasksTab(E: Els, act: Actions, s: Snapshot | null, shown: Task | null, 
   const row = (t: Task) => {
     const isShown = t.folder === shown?.folder
     const gate = waitingGate(t)
-    const where = t.isHere ? 'here' : t.worktree === s?.root ? `branch ${t.branch}` : `${t.branch} · ${t.worktree}`
+    // a worktree's folder already names its task, so the branch would only repeat it
+    const where = t.isHere ? 'here' : t.worktree === s?.root ? `branch ${t.branch}` : worktreeLabel(t.worktree, s?.root ?? '')
     return (
       <E.Button key={`task-${t.folder}`} label={t.slug} onPress={() => act.pick(t.folder)} plain>
-        <E.Text {...ink(E, isShown ? 'current' : 'todo')} bold>{isShown ? `${GLYPH.next} ` : '  '}</E.Text>
-        {t.isActive ? MiniRail(E, t) : [<E.Text color={E.paint.done}>{GLYPH.done}</E.Text>]}
-        <E.Text bold={isShown}>{`  ${t.slug}`}</E.Text>
-        <E.Text {...ink(E, gate ? 'you' : t.isActive ? 'current' : 'done')}>{`  ${gate ? `gate ${gate.n} waiting` : t.phase}`}</E.Text>
-        {showsProgress(t) && t.isActive && <E.Text dimColor>{`  ${t.progress.done}/${t.progress.total} ${bar(t.progress.done, t.progress.total).percent}%`}</E.Text>}
-        <E.Text dimColor>{`  ${where}`}</E.Text>
+        <E.Text wrap="truncate-end">
+          <E.Text {...ink(E, isShown ? 'current' : 'todo')} bold>{isShown ? `${GLYPH.next} ` : '  '}</E.Text>
+          {t.isActive ? MiniRail(E, t) : [<E.Text color={E.paint.done}>{GLYPH.done}</E.Text>]}
+          <E.Text bold={isShown}>{`  ${t.slug}`}</E.Text>
+          <E.Text {...ink(E, gate ? 'you' : t.isActive ? 'current' : 'done')}>{`  ${gate ? `gate ${gate.n} waiting` : t.phase}`}</E.Text>
+          {showsProgress(t) && t.isActive && <E.Text dimColor>{`  ${t.progress.done}/${t.progress.total} ${bar(t.progress.done, t.progress.total).percent}%`}</E.Text>}
+          <E.Text dimColor>{`  ${where}`}</E.Text>
+        </E.Text>
       </E.Button>
     )
   }

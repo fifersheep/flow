@@ -8,7 +8,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import type { Gate, Snapshot, Task } from '../../types'
-import { bar, blockReason, changes, lineRole, openTarget, paletteFor, statusLine, statusPin, statusReport, steps } from '../../hooks/mod/model'
+import { bar, blockReason, changes, lineRole, openTarget, paletteFor, statusLine, statusPin, statusReport, steps, worktreeLabel } from '../../hooks/mod/model'
 
 const FULL = ['setup', 'research', 'planning', 'plan-review', 'implementation', 'code-review', 'reporting', 'wind-down', 'complete']
 const LITE = ['setup', 'planning', 'plan-review', 'implementation', 'code-review', 'wind-down', 'complete']
@@ -151,6 +151,12 @@ describe('model', () => {
     expect(openTarget(snap([side]))).toEqual({ dir: '/repo', label: 'this checkout' })
     expect('error' in openTarget(s, 'nope')).toBe(true)
     expect('error' in openTarget(null)).toBe(true)
+  })
+
+  test('a worktree beside the repo is named relative to it, any other in full', async () => {
+    expect(worktreeLabel('/code/acme-api-audit-log', '/code/acme-api')).toBe('../acme-api-audit-log')
+    expect(worktreeLabel('/code/acme-api/.worktrees/x', '/code/acme-api')).toBe('../acme-api/.worktrees/x')
+    expect(worktreeLabel('/elsewhere/wt', '/code/acme-api')).toBe('/elsewhere/wt')
   })
 
   test('openTarget notes a task whose branch no worktree has checked out', async () => {

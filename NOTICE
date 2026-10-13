@@ -1,0 +1,9 @@
+flow
+Copyright 2026 Scott Laing
+
+A phased development workflow for Claude Code, with gates a hook enforces.
+https://github.com/fifersheep/flow
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+If you redistribute flow or a work derived from it, keep this NOTICE file with
+it (section 4(d) of the License).

@@ -8,7 +8,8 @@ PreToolUse hook rather than by prompt discipline. See README.md for usage and
 Layout: `skills/` (phase skills), `agents/` (subagents), `hooks/` (the
 validator and its shell-command reader `flow_shell.py`, the snapshot script,
 the worktree opener, the Herdr bridge `flow_herdr.py` (splits and terminal
-labels), and the display mod in `hooks/mod/`), `types/` (the mod's state contract), `templates/` (files the
+labels), and the display mod in `hooks/mod/`), `herdr/flow/` (the Herdr app's flow
+panel, a Herdr mod), `types/` (the mod's state contract), `templates/` (files the
 skills write into target repos), `.claude-plugin/` (manifests), `scripts/`
 (`scripts/demo/` retakes the README's screenshots), `tests/`.
 
@@ -40,6 +41,8 @@ PR. One bump per PR, not one per commit.
     python3 -m unittest discover tests -v      # full suite
     claude plugin test .                       # the mod (tests/mod/)
     claude plugin validate .                   # manifest + mod scan
+    node --test tests/herdr/*.test.mjs         # the Herdr panel's model
+    herdr-app check herdr/flow                 # the Herdr panel loads (Herdr installed)
     python3 scripts/check_version_bump.py      # manifests agree
     python3 scripts/check_version_bump.py main # ...and are ahead of main
 

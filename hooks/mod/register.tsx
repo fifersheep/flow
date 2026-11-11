@@ -8,6 +8,8 @@
 //
 // and, from the band, the pane, /flow-term and /flow-code, a terminal or the
 // editor opened in a task's worktree (hooks/flow_open.py does the opening).
+// /flow-herdr installs, opens or removes the Herdr app's flow panel
+// (herdr/flow/, by hooks/flow_herdr.py): a mod of Herdr's, not of this engine.
 //
 // Every view reads one snapshot, printed by hooks/flow_status.py on the same
 // parsing the validator uses. Mods can be switched off (policy, a rollout,
@@ -135,6 +137,18 @@ async function openFromButton($: EngineInterface, kind: OpenKind, dir: string): 
   else $.ui.toast(`flow ${r.needsSetup ? GLYPH.deviation : GLYPH.next} ${r.message}`)
 }
 
+const HERDR_VERBS: Record<string, string> = { '': 'panel', open: 'panel', install: 'install', remove: 'remove' }
+
+/** /flow-herdr [install|remove]: hooks/flow_herdr.py does it; its one line is the answer. */
+async function herdrCommand($: EngineInterface, args: string): Promise<{ text: string }> {
+  const asked = args.trim().toLowerCase()
+  const verb = HERDR_VERBS[asked]
+  if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, or nothing to open the panel` }
+  const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, verb], { timeoutMs: 60000 })
+  const r = JSON.parse(run.stdout) as { ok: boolean; message: string }
+  return { text: `${r.ok ? GLYPH.next : GLYPH.blocked} ${r.message}` }
+}
+
 /** /flow-term setup: the checklist the terminal setting needs, in a fenced block. */
 async function terminalSetup($: EngineInterface): Promise<{ text: string }> {
   const r = await opener($, ['setup', '--app', terminalApp], 300000)
@@ -197,6 +211,12 @@ export const register: Register = (on, options) => {
       name: 'flow-code',
       description: "Open the flow task's worktree in the editor (VS Code unless the plugin's settings say otherwise)",
       argumentHint: '[task]',
+      immediate: true,
+    })
+    await $.command.register({
+      name: 'flow-herdr',
+      description: "In the Herdr app: open the flow panel beside this session, or install or remove it",
+      argumentHint: '[install|remove]',
       immediate: true,
     })
     if (!e.isInteractive) return started
@@ -290,6 +310,11 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'flow-code' }, async ($, e) => {
     return openFromCommand($, 'editor', e.args)
   }).catch(() => ({ text: `${GLYPH.blocked} flow-code: the editor could not be opened` }))
+
+  // The Herdr app's flow panel: installed, opened or removed on request
+  on('command.run', { command: 'flow-herdr' }, async ($, e) => {
+    return herdrCommand($, e.args)
+  }).catch(() => ({ text: `${GLYPH.blocked} flow-herdr: hooks/flow_herdr.py could not be run` }))
 
   // Mod 5: the spinner (the status line is set by each refresh)
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {

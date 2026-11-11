@@ -8,12 +8,22 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView, Scrollbar } from "gpui-base";
-import { agents, appHome, exec, focused, notify, panes, readTextFile, run, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
+import { agents, appHome, exec, focused, notify, panes, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
 import { HEX, cards, events, gateAsk, gateOf, labelled, phaseOf, progressOf, short, signature, slugOf, steps, wanted } from "./model.js";
 
 const TABS = ["progress", "plan", "decisions", "deviations"];
 const ROLE = { done: HEX.done, current: HEX.current, you: HEX.you };
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Which card is open, and on which tab, is Herdr's shared state, not a copy's:
+// every flow panel shows the same, and setShared redraws them all at once.
+// Herdr keeps it in shared.json, so it outlasts a restart too.
+const VIEW = "flow.view";
+function view() {
+  const v = shared(VIEW);
+  return { open: typeof v?.open === "string" ? v.open : null, tab: TABS.includes(v?.tab) ? v.tab : "progress" };
+}
+const show = (open, tab = "progress") => setShared(VIEW, { open, tab });
 
 // Notifications belong to the module, not to a copy: module code runs once and
 // is shared by every copy, so two open panels toast once. A copy that isn't on
@@ -48,8 +58,6 @@ export default class Flow extends View {
     this.loading = new Set();
     this.watching = new Set();
     this.sig = null;
-    this.open = null; //          the expanded card's folder
-    this.tab = "progress";
     this.error = null;
     cx.spawn(async (cx) => {
       try {
@@ -122,14 +130,14 @@ export default class Flow extends View {
   }
 
   card(c, i, t) {
-    const task = c.task, gate = gateOf(c), open = this.open === c.dir, phase = phaseOf(c);
+    const task = c.task, gate = gateOf(c), open = view().open === c.dir, phase = phaseOf(c);
     const done = phase === "complete";
     const working = c.agents.some((a) => a.info?.status === "working");
     const meta = [task?.mode ?? c.labels?.mode, task?.ticketId].filter(Boolean).join(" · ");
     return v_flex().id(`card-${i}`).flex_none().p(12).gap(8).rounded(10).border_1()
       .border_color(gate ? HEX.you : open ? t.input : t.border).bg(t.surface)
       .child(v_flex().id(`card-head-${i}`).gap(2).cursor_pointer()
-        .on_click((_e, cx) => { this.open = open ? null : c.dir; this.tab = "progress"; cx.notify(); })
+        .on_click(() => show(open ? null : c.dir))
         .child(h_flex().gap(8).items_center()
           .child(div().size(8).rounded(4).flex_none().bg(done ? HEX.done : gate ? HEX.you : HEX.current))
           .child(div().flex_1().min_w(0).truncate().font_semibold().child(slugOf(c)))
@@ -169,7 +177,7 @@ export default class Flow extends View {
     const agent = c.agents[0];
     return h_flex().gap(6).items_center().px(10).py(7).rounded(7).bg(HEX.you + "40")
       .child(div().flex_1().min_w(0).text_size(12).font_semibold().child(gateAsk(n)))
-      .when(n === 1 && Boolean(c.task?.plan), (e) => e.child(this.button(`plan-${i}`, "Plan", t, (cx) => { this.open = c.dir; this.tab = "plan"; cx.notify(); })))
+      .when(n === 1 && Boolean(c.task?.plan), (e) => e.child(this.button(`plan-${i}`, "Plan", t, () => show(c.dir, "plan"))))
       .when(Boolean(agent), (e) => e.child(this.button(`go-${i}`, "Go to agent", t, () => run("agent.focus", { terminal: agent.address }))));
   }
 
@@ -184,35 +192,35 @@ export default class Flow extends View {
   }
 
   detail(c, i, t) {
-    const task = c.task;
+    const task = c.task, tab = view().tab;
     if (!task) return div().text_size(12).text_color(t.dim).child("Reading the task…");
     const count = { progress: task.progress.total ? `${task.progress.done}/${task.progress.total}` : "",
       plan: "", decisions: task.decisions.length || "", deviations: task.deviations.length || "" };
     return v_flex().gap(8).pt(8).border_t(1).border_color(t.border)
       .child(h_flex().gap(4).children(TABS.map((name) => div().id(`tab-${i}-${name}`).px(8).py(3).rounded(5)
         .text_size(11).cursor_pointer().hover((s) => s.bg(t.hover))
-        .when(this.tab === name, (d) => d.bg(t.selected).text_color(t.foreground))
-        .when(this.tab !== name, (d) => d.text_color(t.muted))
-        .on_click((_e, cx) => { this.tab = name; cx.notify(); })
+        .when(tab === name, (d) => d.bg(t.selected).text_color(t.foreground))
+        .when(tab !== name, (d) => d.text_color(t.muted))
+        .on_click(() => show(c.dir, name))
         .child(count[name] ? `${name} ${count[name]}` : name))))
-      .child(this.tabBody(task, i, t));
+      .child(this.tabBody(task, tab, i, t));
   }
 
-  tabBody(task, i, t) {
+  tabBody(task, tab, i, t) {
     const empty = (text) => div().text_size(12).text_color(t.dim).child(text);
-    if (this.tab === "plan") {
+    if (tab === "plan") {
       return task.plan ? TextView.markdown(`plan-text-${i}`, task.plan).selectable(true).text_size(12) : empty("No plan yet.");
     }
-    if (this.tab === "progress") {
+    if (tab === "progress") {
       if (!task.progress.items.length) return empty("No checklist yet.");
       return v_flex().gap(3).children(task.progress.items.map((it) => h_flex().gap(6).items_start()
         .child(div().flex_none().w(12).text_size(12).text_color(it.done ? HEX.done : t.dim).child(it.done ? "✓" : "○"))
         .child(div().flex_1().min_w(0).text_size(12).text_color(it.done ? t.muted : t.foreground).child(it.text))));
     }
-    const items = this.tab === "decisions" ? task.decisions : task.deviations;
-    if (!items.length) return empty(this.tab === "decisions" ? "No decisions logged." : "No deviations.");
+    const items = tab === "decisions" ? task.decisions : task.deviations;
+    if (!items.length) return empty(tab === "decisions" ? "No decisions logged." : "No deviations.");
     return v_flex().gap(4).children(items.map((text) => h_flex().gap(6).items_start()
-      .child(div().flex_none().w(12).text_size(12).text_color(this.tab === "deviations" ? HEX.wrong : t.dim).child(this.tab === "deviations" ? "▲" : "•"))
+      .child(div().flex_none().w(12).text_size(12).text_color(tab === "deviations" ? HEX.wrong : t.dim).child(tab === "deviations" ? "▲" : "•"))
       .child(div().flex_1().min_w(0).text_size(12).child(text))));
   }
 

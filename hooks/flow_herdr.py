@@ -52,6 +52,9 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent
 MOD_SRC = PLUGIN / "herdr" / "flow"
 MOD = "flow"
+# Herdr writes jsconfig.json and its .d.ts into a mod's folder: never copy those
+MOD_FILES = lambda: sorted(f for f in MOD_SRC.iterdir() if f.is_file() and f.suffix in (".js", ".json", ".svg")
+                           and f.name not in ("jsconfig.json", "flow.json"))
 KEYS = ("flow.task", "flow.phase", "flow.mode", "flow.progress", "flow.gate", "flow.dir")
 TIMEOUT = 5
 
@@ -149,7 +152,7 @@ def install(env=os.environ, which=shutil.which, run=subprocess.run, check=True):
         return {"ok": False, "message": f"{tilde(dest)} holds a mod that isn't flow's, so it was left alone"}
     dest.mkdir(parents=True, exist_ok=True)
     # Herdr reloads on every save: main.js last, so it never runs ahead of its modules
-    for f in sorted((f for f in MOD_SRC.iterdir() if f.is_file()), key=lambda f: f.name == "main.js"):
+    for f in sorted(MOD_FILES(), key=lambda f: f.name == "main.js"):
         shutil.copyfile(f, dest / f.name)
     (dest / "flow.json").write_text(json.dumps({"root": str(PLUGIN), "version": plugin_version()}, indent=2) + "\n")
     if check and which("herdr-app"):

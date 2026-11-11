@@ -117,7 +117,8 @@ class TestInstall(HomeCase):
         run = Recorder(({}, 0))
         doc = install(self.env, which=ON_PATH, run=run)
         self.assertTrue(doc["ok"], doc)
-        for f in MOD_SRC.iterdir():
+        self.assertEqual(sorted(f.name for f in flow_herdr.MOD_FILES()), ["main.js", "mod.json", "model.js"])
+        for f in flow_herdr.MOD_FILES():
             self.assertEqual((self.dest / f.name).read_text(), f.read_text())
         self.assertEqual(self.flow_json()["root"], str(flow_herdr.PLUGIN))
         self.assertEqual(run.calls, [["herdr-app", "check", str(self.dest)]])

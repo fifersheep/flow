@@ -87,8 +87,10 @@ By default that's an iTerm split on the right and VS Code. The terminal,
 editor, split side and split size are settings. For any split iTerm's
 AppleScript can't make, flow uses iTerm's Python API, and `/flow-term setup`
 checks what that needs and tells you how to fix anything missing. In the
-[Herdr](https://herdr.dev) app, flow splits Herdr's pane instead, and labels
-the session's terminal with the task and phase for Herdr's panels to read.
+[Herdr](https://herdr.dev) app, flow splits Herdr's pane instead, and
+`/flow-herdr install` adds a native Herdr panel of every flow task across
+your sessions, with notifications when a gate opens. See
+[In Herdr](docs/reference.md#in-herdr).
 
 ![/flow-term setup: a checklist confirming iTerm, its Python API, the helper package and a connection](docs/images/setup.png)
 
@@ -126,6 +128,7 @@ Then, in a repo:
 | `/flow-pane [tab]` | Open the pane: `progress`, `plan`, `decisions`, `deviations`, `tasks` |
 | `/flow-term [task \| setup]` | Terminal in a task's worktree, or the split's setup checklist |
 | `/flow-code [task]` | Open a task's worktree in your editor |
+| `/flow-herdr [install \| remove]` | In Herdr: open the flow panel beside the session, or install or remove it |
 
 ## Configuration
 

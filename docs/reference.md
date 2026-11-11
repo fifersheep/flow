@@ -144,8 +144,8 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   the new pane across, and `splitSize` doesn't apply. `/flow-term setup`
   says which split it will make.
 - **Labels.** Every write to a `workflow.md` labels the session's terminal
-  with `hc label`, and the session's end takes them off. A Herdr mod reads
-  them live from `terminals()[i].labels`:
+  with `hc label`, the session's start labels the task it's on, and its end
+  takes them off. A Herdr mod reads them live from `terminals()[i].labels`:
 
   | Label | Value |
   |---|---|
@@ -156,5 +156,26 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   | `flow.gate` | the waiting gate's number; absent when no gate waits |
   | `flow.dir` | the task's folder |
 
-  A completed task takes them all off. Like the rest of the mod, they're
-  display: a failed label never touches the session or a gate.
+  A completed task keeps only `flow.task` and `flow.phase=complete`. Like
+  the rest of the mod, they're display: a failed label never touches the
+  session or a gate.
+- **The panel.** `herdr/flow/` is a Herdr mod. `/flow-herdr install` copies
+  it to `~/.config/herdr-app/mods/flow/` with a `flow.json` naming the
+  plugin's folder, so it can run `hooks/flow_status.py`; `/flow-herdr` opens
+  it beside the session's own pane; `/flow-herdr remove` takes it away.
+  Each session's start refreshes an installed copy when the plugin is
+  newer, and never installs one you didn't ask for.
+
+  It shows a card per task: every active task in the repos of the agents
+  labelled with one, and in the focused space's repo. A card has the phase
+  rail (the current phase breathes while its agent works), the checklist's
+  progress, the next action, deviations, the sessions on it, and a straw
+  block while a gate waits, with **Go to agent**. Click a card for its
+  progress, plan (as markdown), decisions and deviations. It never answers
+  a gate: that stays in the session, where the validator holds it.
+
+  While a copy of the panel is running (open in any tab, or opened once and
+  hidden), it posts a Herdr notification when a gate opens, a phase moves
+  or a task completes, unless you're looking at that agent. Clicking one
+  goes to the agent. Herdr starts a mod the first time it's shown, so the
+  notifications start once the panel has been on screen.

@@ -191,6 +191,11 @@ function world(on: On, doc: { current: Snapshot }, opener: Opener | ((argv: read
   on('process.run', ($, e) => {
     const isOpen = e.argv.some(a => a.endsWith('flow_open.py'))
     if (isOpen && !e.argv.includes('--dry-run')) seen.ran.push(e.argv.slice(2))
+    if (e.argv.some(a => a.endsWith('flow_herdr.py'))) {
+      seen.ran.push(e.argv.slice(2))
+      const stdout = JSON.stringify(e.argv[2] === 'remove' ? { ok: false, message: 'no flow panel installed' } : { ok: true, message: `did ${e.argv[2]}` })
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     const answer = typeof opener === 'function' ? opener(e.argv) : opener
     const stdout = JSON.stringify(isOpen ? { ...answer, argv: [] } : doc.current)
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -450,6 +455,18 @@ describe('a terminal or the editor in the worktree', () => {
     await ui.press({ key: 'band-terminal' })
     await ui.unmount()
     expect(seen.toasts).toEqual(["⛔ flow: the terminal setting is tmux, but this session isn't inside tmux"])
+  })
+})
+
+describe('/flow-herdr', () => {
+  test('opens the panel, installs or removes it, and names a verb it lacks', async ($, on) => {
+    const seen = world(on, { current: snap([task()]) })
+    const asks = ['', 'install', 'remove', 'open', 'frob']
+    const said: string[] = []
+    for (const args of asks) said.push((await $.command.run({ command: 'flow-herdr', ...RUN, args })).text ?? '')
+    expect(seen.ran).toEqual([['panel'], ['install'], ['remove'], ['panel']])
+    expect(said).toEqual(['▸ did panel', '▸ did install', '⛔ no flow panel installed', '▸ did panel',
+      '⛔ flow-herdr: no "frob" — install, remove, or nothing to open the panel'])
   })
 })
 

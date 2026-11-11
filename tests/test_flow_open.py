@@ -6,7 +6,7 @@ HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 SCRIPT = HOOKS / "flow_open.py"
 sys.path.insert(0, str(HOOKS))
 import flow_open  # noqa: E402
-from flow_open import ITERM_HELPER, command_for, open_path, setup  # noqa: E402
+from flow_open import HERDR_HELPER, ITERM_HELPER, command_for, open_path, setup  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -86,6 +86,50 @@ class TestTerminal(unittest.TestCase):
         argv, why = cmd("terminal", "kitty")
         self.assertIsNone(argv)
         self.assertIn("iterm-split", why)
+
+
+
+HERDR_ENV = {"HC_TERMINAL_ID": "t3"}
+
+
+class TestHerdr(unittest.TestCase):
+    def test_the_default_in_herdr_splits_herdrs_pane(self):
+        argv, what = cmd("terminal", None, env=HERDR_ENV)
+        self.assertEqual(argv, [sys.executable, str(HERDR_HELPER), "split", "t3", "right", "/repo-wt"])
+        self.assertEqual(what, "a Herdr split")
+
+    def test_iterm_still_wins_in_iterm(self):
+        argv, _ = cmd("terminal", "iterm-split", env={**ITERM_ENV, **HERDR_ENV})
+        self.assertEqual(argv[0], "osascript")
+
+    def test_any_side_and_herdr_works_off_macos(self):
+        argv, _ = cmd("terminal", "herdr", platform="linux", env=HERDR_ENV, side="top", size=30)
+        self.assertEqual(argv[3:5], ["t3", "top"])
+
+    def test_herdr_outside_herdr_says_so(self):
+        argv, why = cmd("terminal", "herdr")
+        self.assertIsNone(argv)
+        self.assertIn("isn't in a Herdr terminal", why)
+        self.assertIsNone(cmd("terminal", "herdr", env=HERDR_ENV, which=NOT_ON_PATH)[0])
+
+    def test_the_other_iterm_settings_are_left_alone(self):
+        self.assertIn("create tab", cmd("terminal", "iterm-tab", env=HERDR_ENV)[0][2])
+
+    def test_setup_in_herdr(self):
+        doc = setup(None, "left", 30, platform="darwin", env=HERDR_ENV, which=ON_PATH)
+        self.assertTrue(doc["ok"])
+        self.assertIn("iterm-split → herdr", doc["lines"][0])
+        self.assertIn("  ○ Herdr splits at half — the 30% split size doesn't apply here", doc["lines"])
+        self.assertEqual(doc["lines"][-1], "  ✓ ready — t and /flow-term split left")
+
+    def test_setup_names_a_missing_herdr_app(self):
+        doc = setup("herdr", "right", 50, env=HERDR_ENV, which=lambda n: None if n == "herdr-app" else ON_PATH(n))
+        self.assertFalse(doc["ok"])
+        self.assertTrue(any("herdr-app isn't on PATH" in line for line in doc["lines"]))
+        doc = setup("herdr", "right", 50, env={}, which=ON_PATH)
+        self.assertIn("isn't running in a Herdr terminal", doc["lines"][1])
+        for line in doc["lines"]:
+            self.assertIn(line.strip()[0], "▌✓▲▸○", line)
 
 
 class TestEditor(unittest.TestCase):

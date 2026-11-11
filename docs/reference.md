@@ -116,7 +116,7 @@ the opening.
 
 | Setting | Values |
 |---|---|
-| `terminal` | `iterm-split` (default), `iterm-tab`, `iterm-window`, `terminal`, `warp`, `tmux` |
+| `terminal` | `iterm-split` (default), `iterm-tab`, `iterm-window`, `terminal`, `warp`, `tmux`, `herdr` |
 | `editor` | `vscode` (default), `cursor`, `zed` |
 | `splitSide` | `right` (default), `left`, `top`, `bottom` |
 | `splitSize` | the new pane's share of Claude Code's pane, 10–90 (default 50) |
@@ -131,3 +131,30 @@ install fails, flow splits right or below at half and says why.
 `/flow-term setup` checks what the chosen split needs: Claude Code running in
 iTerm, the API setting, the package (installing it if missing), and a test
 connection. Each missing piece comes with its fix.
+
+## In Herdr
+
+[Herdr](https://herdr.dev) runs every terminal in herdr-core and names the
+session's own in `HC_TERMINAL_ID`. When that's set and `herdr-app` is on
+PATH, flow uses it (`hooks/flow_herdr.py`):
+
+- **The split.** `herdr` splits the pane Claude Code runs in, through
+  `herdr-app do`, and so does the default `iterm-split` when the session
+  isn't in iTerm. Herdr splits right or down at half: `left` and `top` swap
+  the new pane across, and `splitSize` doesn't apply. `/flow-term setup`
+  says which split it will make.
+- **Labels.** Every write to a `workflow.md` labels the session's terminal
+  with `hc label`, and the session's end takes them off. A Herdr mod reads
+  them live from `terminals()[i].labels`:
+
+  | Label | Value |
+  |---|---|
+  | `flow.task` | the task's slug |
+  | `flow.phase` | its phase |
+  | `flow.mode` | `full` or `lite` |
+  | `flow.progress` | `done/total` of the Progress checklist; absent when it's empty |
+  | `flow.gate` | the waiting gate's number; absent when no gate waits |
+  | `flow.dir` | the task's folder |
+
+  A completed task takes them all off. Like the rest of the mod, they're
+  display: a failed label never touches the session or a gate.

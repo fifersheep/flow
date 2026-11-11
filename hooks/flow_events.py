@@ -13,6 +13,10 @@ keyed by the phase being entered:
 Deliberately NOT prompt discipline: the skills don't have to remember to fire
 anything, so a forgotten step can't silently skip a side effect.
 
+In the Herdr app it also labels the session's terminal with the task's state
+on every workflow.md write, progress ticks included (flow_herdr.py has the
+labels), for Herdr's panels to read.
+
 Always exits 0. Commands here are side effects, never gates — a failing or
 missing editor, notifier or script must not disturb the session, so failures
 are reported to the user and then dropped.
@@ -25,6 +29,8 @@ import sys
 from pathlib import Path
 
 from flow_common import PHASES, artifacts_dir, find_project_root, parse_frontmatter
+from flow_herdr import label_task
+from flow_status import read_task
 
 ON_RE = re.compile(r"^##\s+on\b[^\n]*\n(.*?)(?=^##\s|\Z)", re.MULTILINE | re.DOTALL)
 ENTRY_RE = re.compile(r"^\s*-\s*([a-z-]+)\s*:\s*(.+?)\s*$")
@@ -114,6 +120,10 @@ def main():
     if phase not in PHASES:
         return
     task_dir = str(target.parent)
+    try:
+        label_task(read_task(target, root, None))
+    except Exception:
+        pass  # a stale label costs a stale panel, nothing more
 
     state = load_state()
     previous = state.get(task_dir)

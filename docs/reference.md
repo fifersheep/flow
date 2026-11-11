@@ -171,7 +171,8 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   rail (the current phase breathes while its agent works), the checklist's
   progress, the next action, deviations, the sessions on it, and a straw
   block while a gate waits, with **Go to agent**. Click a card for its
-  progress, plan (as markdown), decisions and deviations. It never answers
+  progress, plan (as markdown), decisions and deviations; every open
+  flow panel shows the same card open, on the same tab. It never answers
   a gate: that stays in the session, where the validator holds it.
 
   While a copy of the panel is running (open in any tab, or opened once and

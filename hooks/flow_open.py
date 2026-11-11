@@ -9,13 +9,15 @@ runs it on its own. Which app is the person's choice (the plugin's `terminal`
 and `editor` settings); how each one is driven lives here, beside the other
 scripts, rather than in the mod, so it can be tested without a session.
 
-A split (`iterm-split`, `tmux`) goes on `--side` right, left, top or bottom of
+A split (`iterm-split`, `tmux`, `herdr`) goes on `--side` right, left, top or bottom of
 the pane Claude Code runs in, taking `--size` percent of it. AppleScript can
 split iTerm only right or below at half, so any other split runs
 flow_iterm.py on iTerm's Python API, in a venv this script makes the first time
 (`~/.cache/flow/iterm2-venv`, the `iterm2` package from PyPI). If that can't
 be had, the split falls back to AppleScript's nearest and says so, pointing
-at `setup`: /flow-term setup, a checklist of what that split needs, each
+at `setup`. In the Herdr app, `iterm-split` (the default) splits Herdr's pane
+instead, through flow_herdr.py, when the session isn't in iTerm. Herdr's
+split has no size: it always takes half. /flow-term setup, a checklist of what that split needs, each
 missing piece with its fix, which installs the helper package when that is
 the one thing missing (the person asked for setup, so that is theirs to ask).
 
@@ -29,13 +31,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+from flow_herdr import in_herdr, terminal_id
+
 HOOKS = Path(__file__).resolve().parent
 ITERM_HELPER = HOOKS / "flow_iterm.py"
+HERDR_HELPER = HOOKS / "flow_herdr.py"
 ITERM_PACKAGE = "iterm2==2.30"
 SIDES = ("right", "left", "top", "bottom")
 DEFAULT_SIDE, DEFAULT_SIZE = "right", 50
 
-TERMINALS = ("iterm-split", "iterm-tab", "iterm-window", "terminal", "warp", "tmux")
+TERMINALS = ("iterm-split", "iterm-tab", "iterm-window", "terminal", "warp", "tmux", "herdr")
 EDITORS = ("vscode", "cursor", "zed")
 
 # iTerm takes the directory as an argument, so nothing of the path is spliced
@@ -100,7 +105,22 @@ TERMINAL_NAMES = {
     "terminal": "a Terminal window",
     "warp": "Warp",
     "tmux": "a tmux split",
+    "herdr": "a Herdr split",
 }
+
+
+def iterm_session(env=os.environ):
+    """This session's own iTerm pane, from ITERM_SESSION_ID, or ""."""
+    return env.get("ITERM_SESSION_ID", "").partition(":")[2]
+
+
+def resolve_terminal(app, env=os.environ, which=shutil.which):
+    """The setting, with the default's Herdr reading: iterm-split outside
+    iTerm, but inside Herdr, splits Herdr's pane."""
+    app = app or "iterm-split"
+    if app == "iterm-split" and not iterm_session(env) and in_herdr(env, which):
+        return "herdr"
+    return app
 
 
 def venv_python(env=os.environ):
@@ -124,7 +144,7 @@ def command_for(kind, app, path, side=DEFAULT_SIDE, size=DEFAULT_SIZE,
     mac = platform == "darwin"
     side, size = split_args(side, size)
     if kind == "terminal":
-        app = app or "iterm-split"
+        app = resolve_terminal(app, env, which)
         if app not in TERMINALS:
             return None, f"unknown terminal '{app}' — one of {', '.join(TERMINALS)}"
         what = TERMINAL_NAMES[app]
@@ -134,10 +154,14 @@ def command_for(kind, app, path, side=DEFAULT_SIDE, size=DEFAULT_SIZE,
             pane = ["-t", env["TMUX_PANE"]] if env.get("TMUX_PANE") else []
             how = ["-h" if side in ("left", "right") else "-v", *(["-b"] if side in ("left", "top") else [])]
             return ["tmux", "split-window", *how, "-l", f"{size}%", *pane, "-c", path], what
+        if app == "herdr":
+            if not in_herdr(env, which):
+                return None, "the terminal setting is herdr, but this session isn't in a Herdr terminal"
+            return [sys.executable, str(HERDR_HELPER), "split", terminal_id(env), side, path], what
         if not mac:
             return None, f"{what} needs macOS — set the terminal to tmux"
         if app == "iterm-split":
-            sid = env.get("ITERM_SESSION_ID", "").partition(":")[2]
+            sid = iterm_session(env)
             if sid:
                 if size == DEFAULT_SIZE and side in ("right", "bottom"):
                     how = "vertically" if side == "right" else "horizontally"
@@ -216,8 +240,9 @@ def open_path(kind, app, path, side=DEFAULT_SIDE, size=DEFAULT_SIZE, dry_run=Fal
     if argv is None:
         return {"ok": False, "message": what, "argv": None}
     side, size = split_args(side, size)
+    is_herdr = argv[1:2] == [str(HERDR_HELPER)]
     is_split = kind == "terminal" and (app or "iterm-split") in ("iterm-split", "tmux") and "tab" not in what
-    where = f" ({side}, {size}%)" if is_split else ""
+    where = f" ({side})" if is_herdr else f" ({side}, {size}%)" if is_split else ""
     is_api = argv[1:2] == [str(ITERM_HELPER)]
     if dry_run:
         # `setup`: this press will install the helper first, so the mod can say so
@@ -250,7 +275,28 @@ def tilde(path):
     return "~" + p[len(home):] if p == home or p.startswith(home + os.sep) else p
 
 
-def setup(app, side, size, platform=sys.platform, env=os.environ):
+def herdr_setup(app, side, size, env=os.environ, which=shutil.which):
+    """/flow-term setup when the split is Herdr's."""
+    named = "herdr" if app == "herdr" else f"{app} → herdr (this session is in Herdr, not iTerm)"
+    lines = [f"▌ terminal setup — {named}, {side}"]
+    if not terminal_id(env):
+        lines += ["  ▲ Claude Code isn't running in a Herdr terminal",
+                  FIX + "start it in Herdr, or pick another terminal in /config"]
+        return {"ok": False, "lines": lines}
+    lines += [f"  ✓ Claude Code runs in Herdr, terminal {terminal_id(env)}"]
+    if which("herdr-app") is None:
+        lines += ["  ▲ herdr-app isn't on PATH",
+                  FIX + "open the Herdr app once: it links ~/.local/bin/herdr-app",
+                  FIX + "then run /flow-term setup again"]
+        return {"ok": False, "lines": lines}
+    lines += ["  ✓ herdr-app is on PATH"]
+    if size != DEFAULT_SIZE:
+        lines += [f"  ○ Herdr splits at half — the {size}% split size doesn't apply here"]
+    lines += [f"  ✓ ready — t and /flow-term split {side}"]
+    return {"ok": True, "lines": lines}
+
+
+def setup(app, side, size, platform=sys.platform, env=os.environ, which=shutil.which):
     """/flow-term setup: what the terminal setting's split needs, and each fix.
 
     Lines lead with flow's glyphs, which the mod colours: ✓ in place, ▲
@@ -258,6 +304,8 @@ def setup(app, side, size, platform=sys.platform, env=os.environ):
     """
     side, size = split_args(side, size)
     app = app or "iterm-split"
+    if resolve_terminal(app, env, which) == "herdr":
+        return herdr_setup(app, side, size, env, which)
     lines = [f"▌ terminal setup — {app}" + (f", {side} at {size}%" if app in ("iterm-split", "tmux") else "")]
     if app == "tmux":
         if env.get("TMUX"):
@@ -276,7 +324,7 @@ def setup(app, side, size, platform=sys.platform, env=os.environ):
     if platform != "darwin":
         lines += ["  ▲ an iTerm split needs macOS", FIX + "on this machine, set the terminal to tmux in /config"]
         return {"ok": False, "lines": lines}
-    sid = env.get("ITERM_SESSION_ID", "").partition(":")[2]
+    sid = iterm_session(env)
     if not sid:
         lines += ["  ▲ Claude Code isn't running in iTerm, so there's no pane to split",
                   FIX + "start Claude Code in iTerm — until then, t opens an iTerm tab"]

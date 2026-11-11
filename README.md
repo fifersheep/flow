@@ -86,7 +86,9 @@ you ask.
 By default that's an iTerm split on the right and VS Code. The terminal,
 editor, split side and split size are settings. For any split iTerm's
 AppleScript can't make, flow uses iTerm's Python API, and `/flow-term setup`
-checks what that needs and tells you how to fix anything missing.
+checks what that needs and tells you how to fix anything missing. In the
+[Herdr](https://herdr.dev) app, flow splits Herdr's pane instead, and labels
+the session's terminal with the task and phase for Herdr's panels to read.
 
 ![/flow-term setup: a checklist confirming iTerm, its Python API, the helper package and a connection](docs/images/setup.png)
 
@@ -109,7 +111,7 @@ Then, in a repo:
   pictures, not the workflow.
 - Python 3.9 or later, and git.
 - For the terminal button: macOS with iTerm, Terminal or Warp, or any OS
-  inside tmux. iTerm splits other than right or below at half need iTerm's
+  inside tmux or Herdr. iTerm splits other than right or below at half need iTerm's
   Python API (Settings → General → Magic → Enable Python API).
 
 ## Commands
@@ -140,7 +142,7 @@ Then, in a repo:
 
 | Setting | Default | Options |
 |---|---|---|
-| Terminal | `iterm-split` | `iterm-split`, `iterm-tab`, `iterm-window`, `terminal`, `warp`, `tmux` |
+| Terminal | `iterm-split` | `iterm-split`, `iterm-tab`, `iterm-window`, `terminal`, `warp`, `tmux`, `herdr` |
 | Editor | `vscode` | `vscode`, `cursor`, `zed` |
 | Split side | `right` | `right`, `left`, `top`, `bottom` |
 | Split size (%) | `50` | 10–90, of Claude Code's pane |

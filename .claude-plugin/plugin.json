@@ -1,7 +1,7 @@
 {
   "name": "flow",
   "description": "Phased development workflow: setup → research → plan → gated plan review → implement → review-against-plan → gated report → wind-down. Durable file-based state, resumable from any session. Plus /flow shape: upstream ticket shaping (brainstorm → agreed tracker tickets).",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "author": { "name": "Scott Laing" },
   "homepage": "https://github.com/fifersheep/flow",
   "repository": "https://github.com/fifersheep/flow",
@@ -12,14 +12,14 @@
     "terminal": {
       "type": "string",
       "title": "Terminal",
-      "description": "What the flow mod's terminal button and /flow-term open in a task's worktree. iterm-split and tmux split the pane Claude Code runs in, side by side.",
+      "description": "What the flow mod's terminal button and /flow-term open in a task's worktree. iterm-split, tmux and herdr split the pane Claude Code runs in, side by side; in the Herdr app, iterm-split splits Herdr's pane.",
       "default": "iterm-split",
-      "options": ["iterm-split", "iterm-tab", "iterm-window", "terminal", "warp", "tmux"]
+      "options": ["iterm-split", "iterm-tab", "iterm-window", "terminal", "warp", "tmux", "herdr"]
     },
     "splitSide": {
       "type": "string",
       "title": "Split side",
-      "description": "Where an iterm-split or tmux terminal opens beside Claude Code's pane. Right and bottom at 50% need nothing more; any other split uses iTerm's Python API (Settings → General → Magic → Enable Python API), which flow sets up in ~/.cache/flow on first use.",
+      "description": "Where an iterm-split, tmux or herdr terminal opens beside Claude Code's pane. Right and bottom at 50% need nothing more; any other split uses iTerm's Python API (Settings → General → Magic → Enable Python API), which flow sets up in ~/.cache/flow on first use.",
       "default": "right",
       "options": ["right", "left", "top", "bottom"]
     },

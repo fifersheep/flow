@@ -41,12 +41,14 @@ class EventsCase(unittest.TestCase):
         p.write_text(WORKFLOW.format(phase=phase))
         return p
 
-    def run_hook(self, file_path, tool="Write"):
+    def run_hook(self, file_path, tool="Write", **extra_env):
         payload = {"hook_event_name": "PostToolUse", "tool_name": tool,
                    "cwd": str(self.dir),
                    "tool_input": {"file_path": str(file_path)}}
         env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.dir),
-                   CLAUDE_PLUGIN_DATA=str(self.data))
+                   CLAUDE_PLUGIN_DATA=str(self.data), **extra_env)
+        if "HC_TERMINAL_ID" not in extra_env:
+            env.pop("HC_TERMINAL_ID", None)  # never label the Herdr terminal running the tests
         return subprocess.run(["python3", str(SCRIPT)], input=json.dumps(payload),
                               capture_output=True, text=True, env=env)
 
@@ -221,6 +223,43 @@ class TestFailureIsNeverFatal(EventsCase):
         r = self.run_hook(wf)
         self.assertEqual(r.returncode, 0)
         self.assertEqual(self.fired(), [])
+
+
+class TestHerdrLabels(EventsCase):
+    """In Herdr, every workflow.md write labels the session's terminal."""
+
+    def setUp(self):
+        super().setUp()
+        bin_dir = self.dir / "bin"
+        bin_dir.mkdir()
+        self.calls = self.dir / "hc.log"
+        hc = bin_dir / "hc"
+        hc.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> "{self.calls}"\n')
+        hc.chmod(0o755)
+        self.path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+
+    def labelled(self):
+        return self.calls.read_text().splitlines() if self.calls.is_file() else []
+
+    def test_each_write_labels_the_terminal_progress_ticks_included(self):
+        wf = self.write_workflow("planning")
+        self.run_hook(wf, HC_TERMINAL_ID="t9", PATH=self.path)
+        self.run_hook(wf, HC_TERMINAL_ID="t9", PATH=self.path)  # same phase: no `on`, still a label
+        calls = self.labelled()
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[0].startswith("label t9 flow.task=add-widget flow.phase=planning flow.mode=full "))
+        self.assertIn(f"flow.dir={self.task_dir.resolve()}", calls[0])
+
+    def test_outside_herdr_nothing_is_labelled(self):
+        self.run_hook(self.write_workflow("planning"), PATH=self.path)
+        self.assertEqual(self.labelled(), [])
+
+    def test_a_failing_hc_costs_nothing(self):
+        (self.dir / "bin" / "hc").write_text("#!/bin/sh\nexit 3\n")
+        self.write_config(f"## on\n- planning: echo planning >> {self.sentinel}\n")
+        r = self.run_hook(self.write_workflow("planning"), HC_TERMINAL_ID="t9", PATH=self.path)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.fired(), ["planning"])
 
 
 if __name__ == "__main__":

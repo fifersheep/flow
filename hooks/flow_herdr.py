@@ -5,6 +5,7 @@
     python3 flow_herdr.py start                      the SessionStart hook (payload on stdin)
     python3 flow_herdr.py clear                      the SessionEnd hook
     python3 flow_herdr.py install | remove | panel   /flow-herdr runs these
+    python3 flow_herdr.py snapshots DIR              the Herdr panel runs this
 
 Herdr runs every terminal in herdr-core (`hc`) and tells the program inside
 which one it is in HC_TERMINAL_ID. Two things use that:
@@ -30,7 +31,13 @@ which one it is in HC_TERMINAL_ID. Two things use that:
   A completed task keeps only `flow.task` and `flow.phase=complete`, so a
   panel can say so; the session's end takes them all off. The session's
   start labels the task the session is on, so a resumed task shows before
-  its first write.
+  its first write. Both put on one more, which the start puts on task or not:
+
+      flow.version   the flow that labels this session
+
+  so a panel can tell a session with no task from one whose flow predates
+  the labels (Claude Code reads hooks when a session starts: one started
+  before the plugin was updated runs the old ones until it restarts).
 - **The panel.** herdr/flow/ is a Herdr mod: a panel of flow tasks beside
   the session, and Herdr notifications when a gate opens, a phase moves or a
   task completes. `install` copies it to ~/.config/herdr-app/mods/flow/ (or
@@ -38,6 +45,9 @@ which one it is in HC_TERMINAL_ID. Two things use that:
   panel can run flow_status.py. Mods are trusted code, so only the person
   installs it; each session's start then refreshes an installed copy when
   the plugin is newer. `panel` opens it beside the session's own pane.
+  `snapshots DIR` is what the panel reads: flow_status.py's snapshot of the
+  repo DIR is in, or, when DIR is in none (a folder holding several repos),
+  of each repo directly under it that has flow tasks.
 
 Outside Herdr none of this runs. Like everything the mod does, it is display:
 a failed label costs a stale panel, never a session or a gate.
@@ -56,6 +66,8 @@ MOD = "flow"
 MOD_FILES = lambda: sorted(f for f in MOD_SRC.iterdir() if f.is_file() and f.suffix in (".js", ".json", ".svg")
                            and f.name not in ("jsconfig.json", "flow.json"))
 KEYS = ("flow.task", "flow.phase", "flow.mode", "flow.progress", "flow.gate", "flow.dir")
+VERSION = "flow.version"  # on from the session's start to its end, task or not
+BELOW = 12  # repos read under a folder that isn't one
 TIMEOUT = 5
 
 
@@ -99,14 +111,14 @@ def label_task(task, env=os.environ, which=shutil.which, run=subprocess.run):
     terminal = terminal_id(env)
     if not terminal or which("hc") is None:
         return None
-    return set_labels(terminal, labels_for(task), run=run)
+    return set_labels(terminal, {**labels_for(task), VERSION: plugin_version()}, run=run)
 
 
 def clear(env=os.environ, which=shutil.which, run=subprocess.run):
     terminal = terminal_id(env)
     if not terminal or which("hc") is None:
         return None
-    return set_labels(terminal, {k: "" for k in KEYS}, run=run)
+    return set_labels(terminal, {k: "" for k in (*KEYS, VERSION)}, run=run)
 
 
 def app_home(env=os.environ):
@@ -142,6 +154,13 @@ def tilde(path):
     return "~" + p[len(home):] if p == home or p.startswith(home + os.sep) else p
 
 
+def put(path, data):
+    """Write a file whole: a hidden temporary beside it (Herdr ignores those), then a rename."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
 def install(env=os.environ, which=shutil.which, run=subprocess.run, check=True):
     """Copy the panel into Herdr's mods. {ok, message}."""
     home = app_home(env)
@@ -151,10 +170,12 @@ def install(env=os.environ, which=shutil.which, run=subprocess.run, check=True):
     if dest.exists() and installed(env) is None:
         return {"ok": False, "message": f"{tilde(dest)} holds a mod that isn't flow's, so it was left alone"}
     dest.mkdir(parents=True, exist_ok=True)
-    # Herdr reloads on every save: main.js last, so it never runs ahead of its modules
+    # Herdr reloads on every save: main.js last, so it never runs ahead of its
+    # modules, and each whole, by rename: rewritten in place, a file can be read
+    # half-written, and Herdr keeps the old build without saying so
     for f in sorted(MOD_FILES(), key=lambda f: f.name == "main.js"):
-        shutil.copyfile(f, dest / f.name)
-    (dest / "flow.json").write_text(json.dumps({"root": str(PLUGIN), "version": plugin_version()}, indent=2) + "\n")
+        put(dest / f.name, f.read_bytes())
+    put(dest / "flow.json", (json.dumps({"root": str(PLUGIN), "version": plugin_version()}, indent=2) + "\n").encode())
     if check and which("herdr-app"):
         r = run(["herdr-app", "check", str(dest)], capture_output=True, text=True, timeout=30)
         if r.returncode != 0:
@@ -210,12 +231,32 @@ def panel(env=os.environ, which=shutil.which, run=subprocess.run):
 def session_start(payload, env=os.environ, which=shutil.which, run=subprocess.run):
     """Refresh an installed panel; label the session with the task it's on."""
     sync(env)
-    if not terminal_id(env) or which("hc") is None:
+    terminal = terminal_id(env)
+    if not terminal or which("hc") is None:
         return None
     from flow_status import snapshot  # only in Herdr: it runs git
     snap = snapshot(payload.get("cwd") or os.getcwd())
     task = next((t for t in snap["tasks"] if t["folder"] == snap.get("current")), None)
-    return label_task(task, env, which, run) if task else clear(env, which, run)
+    labels = labels_for(task) if task else {k: "" for k in KEYS}
+    return set_labels(terminal, {**labels, VERSION: plugin_version()}, run=run)
+
+
+def snapshots(cwd):
+    """The snapshots the panel shows for a folder: its repo's, or, in a folder
+    that holds repos rather than sitting in one, those of the repos under it
+    that have flow tasks (at most BELOW of them)."""
+    from flow_common import artifacts_dir
+    from flow_status import root_of, snapshot
+    here = Path(cwd).resolve()
+    is_root = lambda d: (d / ".git").exists() or (d / ".flow.md").is_file()
+    if root_of(here) != here or is_root(here):
+        return [snapshot(here)]
+    try:
+        below = sorted(d for d in here.iterdir() if d.is_dir() and not d.name.startswith(".")
+                       and is_root(d) and (d / artifacts_dir(d)).is_dir())
+    except OSError:
+        below = []
+    return [snapshot(d) for d in below[:BELOW]] or [snapshot(here)]
 
 
 def do(command, run=subprocess.run, **args):
@@ -260,6 +301,12 @@ def main(argv):
         except Exception:
             pass
         return 0  # display only: nothing here may disturb a session
+    if argv[:1] == ["snapshots"] and len(argv) == 2:
+        try:
+            print(json.dumps(snapshots(argv[1])))
+        except Exception:
+            print("[]")
+        return 0
     if argv[:1] in (["install"], ["remove"], ["panel"]):
         try:
             doc = {"install": install, "remove": remove, "panel": panel}[argv[0]]()
@@ -267,7 +314,7 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel", file=sys.stderr)
+    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | snapshots DIR", file=sys.stderr)
     return 2
 
 

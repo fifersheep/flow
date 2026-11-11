@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cards, events, gateOf, labelled, progressOf, signature, steps, wanted } from "../../herdr/flow/model.js";
+import { cards, events, gateOf, labelled, progressOf, signature, steps, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -74,4 +74,20 @@ test("wanted asks for agents' folders and where you are, once each", () => {
   const agents = labelled([term("t2", flow()), term("t3", flow())]);
   assert.deepEqual(wanted(agents, "/here"), ["/r/docs/tasks/a", "/here"]);
   assert.notEqual(signature(agents), signature(labelled([term("t2", flow({ "flow.progress": "4/7" }))])));
+});
+
+test("unreporting is the Claude Code agents whose terminal has no flow label", () => {
+  const terminals = [
+    { address: "t1", labels: { "flow.version": "0.10.2" } },
+    { address: "t2", labels: {} },
+    { address: "t3", labels: { "flow.version": "0.10.2", "flow.task": "x" } },
+  ];
+  const agents = [
+    { address: "t1", app: "claude-code" }, { address: "t2", app: "claude-code" },
+    { address: "t3", app: "claude-code" }, { address: "t4", app: "codex" }, { address: "t5", app: "claude-code" },
+  ];
+  assert.deepEqual(unreporting(terminals, agents).map((a) => a.address), ["t2", "t5"]);
+  // a task's labels from a session that started before flow.version existed
+  assert.deepEqual(unreporting([{ address: "t2", labels: { "flow.task": "x" } }], agents.slice(1, 2)), []);
+  assert.deepEqual(unreporting(undefined, undefined), []);
 });

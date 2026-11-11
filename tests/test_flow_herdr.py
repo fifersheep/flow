@@ -5,7 +5,7 @@ from unittest import mock
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
 import flow_herdr  # noqa: E402
-from flow_herdr import KEYS, MOD_SRC, clear, do, in_herdr, install, label_task, labels_for, panel, remove, session_start, split, sync  # noqa: E402
+from flow_herdr import KEYS, MOD_SRC, VERSION, clear, do, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -49,7 +49,8 @@ class TestLabels(unittest.TestCase):
         run = Recorder()
         self.assertIsNone(label_task(task(), env=HERDR, which=ON_PATH, run=run))
         self.assertEqual(run.calls[0][:4], ["hc", "label", "t3", "flow.task=add-widget"])
-        self.assertEqual(len(run.calls[0]), 3 + len(KEYS))
+        self.assertEqual(run.calls[0][-1], f"{VERSION}={flow_herdr.plugin_version()}")
+        self.assertEqual(len(run.calls[0]), 3 + len(KEYS) + 1)
 
     def test_outside_herdr_or_without_hc_nothing_runs(self):
         run = Recorder()
@@ -60,10 +61,14 @@ class TestLabels(unittest.TestCase):
     def test_a_refused_label_says_why(self):
         self.assertIsNotNone(label_task(task(), env=HERDR, which=ON_PATH, run=Recorder(({"error": "no such terminal"}, 1))))
 
-    def test_clear_takes_them_all_off(self):
+    def test_clear_takes_them_all_off_with_the_version(self):
         run = Recorder()
         clear(env=HERDR, which=ON_PATH, run=run)
-        self.assertEqual(run.calls[0][3:], [f"{k}=" for k in KEYS])
+        self.assertEqual(run.calls[0][3:], [f"{k}=" for k in (*KEYS, VERSION)])
+
+    def test_a_tasks_labels_leave_the_version_alone(self):
+        self.assertNotIn(VERSION, labels_for(task()))
+        self.assertNotIn(VERSION, labels_for(task(phase="complete")))
 
 
 class TestSplit(unittest.TestCase):
@@ -122,6 +127,15 @@ class TestInstall(HomeCase):
             self.assertEqual((self.dest / f.name).read_text(), f.read_text())
         self.assertEqual(self.flow_json()["root"], str(flow_herdr.PLUGIN))
         self.assertEqual(run.calls, [["herdr-app", "check", str(self.dest)]])
+
+    def test_a_reinstall_replaces_each_file_whole(self):
+        install(self.env, check=False)
+        main = self.home / "mods" / "flow" / "main.js"
+        before = main.stat().st_ino
+        install(self.env, check=False)
+        self.assertNotEqual(main.stat().st_ino, before)  # a new file, renamed in: never half-written
+        self.assertEqual(main.read_text(), (MOD_SRC / "main.js").read_text())
+        self.assertEqual([f.name for f in main.parent.iterdir() if f.name.endswith(".tmp")], [])
 
     def test_a_failed_check_is_said(self):
         doc = install(self.env, which=ON_PATH, run=Recorder(({}, 1)))
@@ -197,17 +211,60 @@ class TestSessionStart(HomeCase):
         with mock.patch("flow_status.snapshot", return_value=self.snap("2026-11-11-add-widget")):
             session_start({"cwd": "/r"}, self.env, which=ON_PATH, run=run)
         self.assertIn("flow.task=add-widget", run.calls[0])
+        self.assertIn(f"{VERSION}={flow_herdr.plugin_version()}", run.calls[0])
+        self.assertEqual(len(run.calls), 1)
 
-    def test_no_task_here_clears(self):
+    def test_no_task_here_clears_the_task_but_says_which_flow(self):
         run = Recorder()
         with mock.patch("flow_status.snapshot", return_value=self.snap(None)):
             session_start({"cwd": "/r"}, self.env, which=ON_PATH, run=run)
-        self.assertEqual(run.calls[0][3:], [f"{k}=" for k in KEYS])
+        self.assertEqual(run.calls[0][3:], [*(f"{k}=" for k in KEYS), f"{VERSION}={flow_herdr.plugin_version()}"])
 
     def test_outside_herdr_nothing_is_read(self):
         with mock.patch("flow_status.snapshot") as snap:
             session_start({"cwd": "/r"}, {"HERDR_APP_HOME": str(self.home)}, which=ON_PATH, run=Recorder())
         snap.assert_not_called()
+
+
+class TestSnapshots(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.dir)
+
+    def repo(self, path, tasks=True):
+        path.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(path)], check=True)
+        if tasks:
+            (path / "docs" / "tasks").mkdir(parents=True)
+        return path
+
+    def roots(self, cwd):
+        return [s["root"] for s in snapshots(cwd)]
+
+    def test_inside_a_repo_its_own(self):
+        r = self.repo(self.dir / "app")
+        (r / "src").mkdir()
+        self.assertEqual(self.roots(r / "src"), [str(r)])
+
+    def test_a_repo_without_tasks_is_still_its_own(self):
+        r = self.repo(self.dir / "app", tasks=False)
+        self.assertEqual(self.roots(r), [str(r)])
+
+    def test_a_folder_of_repos_reads_those_with_flow_tasks(self):
+        a = self.repo(self.dir / "android")
+        self.repo(self.dir / "web", tasks=False)
+        b = self.repo(self.dir / "ios")
+        (self.dir / "notes").mkdir()
+        self.assertEqual(self.roots(self.dir), [str(a), str(b)])
+
+    def test_a_folder_with_no_repos_is_itself(self):
+        (self.dir / "notes").mkdir()
+        self.assertEqual(self.roots(self.dir), [str(self.dir)])
+
+    def test_at_most_a_few_repos_below(self):
+        for i in range(flow_herdr.BELOW + 2):
+            self.repo(self.dir / f"r{i:02}")
+        self.assertEqual(len(self.roots(self.dir)), flow_herdr.BELOW)
 
 
 class TestScript(unittest.TestCase):

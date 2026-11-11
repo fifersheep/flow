@@ -9,7 +9,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView, Scrollbar } from "gpui-base";
 import { agents, appHome, exec, focused, notify, panes, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
-import { HEX, cards, events, gateAsk, gateOf, labelled, phaseOf, progressOf, short, signature, slugOf, steps, wanted } from "./model.js";
+import { HEX, cards, events, gateAsk, gateOf, labelled, phaseOf, progressOf, short, signature, slugOf, steps, unreporting, wanted } from "./model.js";
 
 const TABS = ["progress", "plan", "decisions", "deviations"];
 const ROLE = { done: HEX.done, current: HEX.current, you: HEX.you };
@@ -54,7 +54,7 @@ export default class Flow extends View {
   init(_props, cx) {
     this.plugin = null; //        the flow plugin's folder, from flow.json
     this.snaps = new Map(); //    repo root -> snapshot
-    this.rootOf = new Map(); //   folder asked about -> its repo root (null: none)
+    this.rootOf = new Map(); //   folder asked about -> the repo roots it shows
     this.loading = new Set();
     this.watching = new Set();
     this.sig = null;
@@ -78,11 +78,12 @@ export default class Flow extends View {
     this.loading.add(dir);
     cx.spawn(async (cx) => {
       try {
-        const r = await exec("python3", [`${this.plugin}/hooks/flow_status.py`, "--cwd", dir], { timeout: 15000 });
-        const s = JSON.parse(r.stdout);
-        this.rootOf.set(dir, s.root ?? null);
-        if (s.root) { this.snaps.set(s.root, s); this.watch(s, cx); }
-      } catch { this.rootOf.set(dir, null); }
+        // its repo's snapshot, or those of the repos under a folder that isn't one
+        const r = await exec("python3", [`${this.plugin}/hooks/flow_herdr.py`, "snapshots", dir], { timeout: 15000 });
+        const found = JSON.parse(r.stdout).filter((s) => s?.root);
+        this.rootOf.set(dir, found.map((s) => s.root));
+        for (const s of found) { this.snaps.set(s.root, s); this.watch(s, cx); }
+      } catch { this.rootOf.set(dir, []); }
       finally { this.loading.delete(dir); cx.notify(); }
     });
   }
@@ -104,7 +105,9 @@ export default class Flow extends View {
     listen();
     const t = theme();
     const live = labelled(terminals());
-    const status = new Map(agents().map((a) => [a.address, a]));
+    const all = agents();
+    const status = new Map(all.map((a) => [a.address, a]));
+    const silent = unreporting(terminals(), all);
     const want = wanted(live, here());
     for (const dir of want) if (!this.rootOf.has(dir)) this.load(dir, cx);
     const sig = signature(live);
@@ -112,7 +115,7 @@ export default class Flow extends View {
       if (this.sig !== null) for (const a of live) this.load(a.dir, cx);
       this.sig = sig;
     }
-    const roots = new Set(want.map((d) => this.rootOf.get(d)).filter(Boolean));
+    const roots = new Set(want.flatMap((d) => this.rootOf.get(d) ?? []));
     const list = cards([...roots].map((r) => this.snaps.get(r)), live.map((a) => ({ ...a, info: status.get(a.address) })));
     const waiting = list.filter(gateOf).length;
 
@@ -125,8 +128,22 @@ export default class Flow extends View {
         .child(v_flex().id("flow-list").absolute().inset_0().overflow_y_scroll().p(10).gap(10)
           .children(list.map((c, i) => this.card(c, i, t)))
           .when(!list.length, (e) => e.child(div().p(6).text_size(12).text_color(t.dim).child(this.error ?? (
-            this.loading.size ? "Reading flow tasks…" : "No flow tasks here. A task shows up when a Claude Code session in Herdr works on one, or when this space's repo has one.")))))
+            this.loading.size ? "Reading flow tasks…" : "No flow tasks here. A task shows up when a Claude Code session in Herdr works on one, or when this space's repo has one."))))
+          .when(silent.length > 0, (e) => e.child(this.silent(silent, t))))
         .child(Scrollbar.vertical("flow-list").absolute().inset_0()));
+  }
+
+  /** Claude Code sessions that can't label their terminal: no task shows for them, so say why. */
+  silent(list, t) {
+    const one = list.length === 1;
+    return v_flex().flex_none().gap(4).p(12).rounded(10).border_1().border_color(t.border)
+      .child(div().text_size(12).text_color(t.muted).child(one
+        ? "1 Claude Code session isn't reporting to flow: it started before flow was updated, so its task can't show here. Restart it with claude --continue."
+        : `${list.length} Claude Code sessions aren't reporting to flow: they started before flow was updated, so their tasks can't show here. Restart each with claude --continue.`))
+      .children(list.map((a, k) => h_flex().id(`silent-${k}`).gap(6).items_center().rounded(5).px(4).mx(-4).py(1)
+        .cursor_pointer().hover((d) => d.bg(t.hover)).on_click(() => run("agent.focus", { terminal: a.address }))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.foreground).child(`${a.space_name} / ${a.tab_name}`))
+        .child(div().max_w(180).truncate().text_size(11).text_color(t.dim).child(a.title ?? ""))));
   }
 
   card(c, i, t) {

@@ -140,6 +140,17 @@ export function wanted(agents, cwd) {
   return [...out];
 }
 
+/**
+ * The Claude Code agents whose session has labelled nothing: started before
+ * this flow was installed, so running hooks that never label. They show no
+ * task, which isn't the same as having none.
+ */
+export function unreporting(terminals, agents) {
+  const reports = new Set((terminals ?? [])
+    .filter((t) => t?.labels?.["flow.version"] || t?.labels?.["flow.task"]).map((t) => t.address));
+  return (agents ?? []).filter((a) => a.app === "claude-code" && !reports.has(a.address));
+}
+
 /** A key that changes whenever any agent's flow labels do. */
 export const signature = (agents) =>
   JSON.stringify(agents.map((a) => [a.address, a.task, a.phase, a.gate, a.progress?.done, a.dir]));

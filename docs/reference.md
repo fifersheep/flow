@@ -155,25 +155,34 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   | `flow.progress` | `done/total` of the Progress checklist; absent when it's empty |
   | `flow.gate` | the waiting gate's number; absent when no gate waits |
   | `flow.dir` | the task's folder |
+  | `flow.version` | the flow labelling the session; the start puts it on, task or not |
 
   A completed task keeps only `flow.task` and `flow.phase=complete`. Like
   the rest of the mod, they're display: a failed label never touches the
   session or a gate.
 - **The panel.** `herdr/flow/` is a Herdr mod. `/flow-herdr install` copies
   it to `~/.config/herdr-app/mods/flow/` with a `flow.json` naming the
-  plugin's folder, so it can run `hooks/flow_status.py`; `/flow-herdr` opens
+  plugin's folder, so it can read flow's snapshots; `/flow-herdr` opens
   it beside the session's own pane; `/flow-herdr remove` takes it away.
   Each session's start refreshes an installed copy when the plugin is
   newer, and never installs one you didn't ask for.
 
   It shows a card per task: every active task in the repos of the agents
-  labelled with one, and in the focused space's repo. A card has the phase
-  rail (the current phase breathes while its agent works), the checklist's
-  progress, the next action, deviations, the sessions on it, and a straw
-  block while a gate waits, with **Go to agent**. Click a card for its
-  progress, plan (as markdown), decisions and deviations; every open
-  flow panel shows the same card open, on the same tab. It never answers
-  a gate: that stays in the session, where the validator holds it.
+  labelled with one, and in the repo you're in. When the focused folder
+  isn't in a repo but holds some (a project folder with an app's repos in
+  it), it reads the repos directly under it that have flow tasks. A card
+  has the phase rail (the current phase breathes while its agent works),
+  the checklist's progress, the next action, deviations, the sessions on
+  it, and a straw block while a gate waits, with **Go to agent**. Click a
+  card for its progress, plan (as markdown), decisions and deviations;
+  every open flow panel shows the same card open, on the same tab. It
+  never answers a gate: that stays in the session, where the validator
+  holds it.
+
+  Claude Code reads a plugin's hooks when a session starts, so a session
+  started before flow was updated runs the old ones and labels nothing.
+  The panel lists those sessions (a Claude Code agent with no flow
+  label): restart each with `claude --continue`, and they show.
 
   While a copy of the panel is running (open in any tab, or opened once and
   hidden), it posts a Herdr notification when a gate opens, a phase moves

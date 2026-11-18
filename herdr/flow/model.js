@@ -122,8 +122,14 @@ export function cards(snapshots, agents) {
 // The snapshot is read from the files, the labels from the last write a
 // session made: once a task's snapshot is in, it has the last word.
 
-/** The gate waiting on the person, or null. */
-export const gateOf = (c) => (c.task ? waitingGate(c.task) : c.labels?.gate ?? null);
+/**
+ * The gate waiting on the person, or null. flow marks a gate waiting as soon
+ * as the phase before it starts, and the agent still has that phase's work to
+ * do (the critic in plan review, the report and PR in reporting), so while an
+ * agent on the task is working, the gate isn't the person's yet.
+ */
+export const gateOf = (c) => (c.agents?.some((a) => a.info?.status === "working") ? null
+  : c.task ? waitingGate(c.task) : c.labels?.gate ?? null);
 
 /** {done, total} of the checklist, or null while it's empty. */
 export function progressOf(c) {
@@ -192,9 +198,12 @@ export function assign(g, dir, name) {
 /** Removes a group; its cards go back to ungrouped. */
 export function dropGroup(g, name) {
   const member = Object.fromEntries(Object.entries(g.member).filter(([, n]) => n !== name));
-  const key = `group:${name}`;
-  return { ...g, names: g.names.filter((n) => n !== name), member, closed: g.closed.filter((k) => k !== key) };
+  const key = `group:${name}`, gone = new Set([key, boardKey(key)]);
+  return { ...g, names: g.names.filter((n) => n !== name), member, closed: g.closed.filter((k) => !gone.has(k)) };
 }
+
+/** A lane's key in `closed` on the stages board: folded apart from the panel's group. */
+export const boardKey = (key) => `board:${key}`;
 
 /** A repo's name: its folder's, with its parent's when two repos share one. */
 function repoNames(repos) {

@@ -218,6 +218,15 @@ class TestBoard(HomeCase):
         self.assertIn("showed", board("stages", self.env, which=ON_PATH, run=run)["message"])
         self.assertEqual(run.calls[1], ["herdr-app", "do", "tab.select", "--id", "b"])
 
+    def test_tabs_it_cant_list_are_an_error_not_a_second_board(self):
+        install(self.env, which=NOT_ON_PATH)
+        for answer in (({}, 1), ("not json", 0)):
+            run = Recorder(answer)
+            doc = board("stages", self.env, which=ON_PATH, run=run)
+            self.assertFalse(doc["ok"])
+            self.assertIn("couldn't list Herdr's tabs", doc["message"])
+            self.assertEqual(len(run.calls), 1)  # no tab.new
+
     def test_an_unknown_board_not_installed_or_outside_herdr(self):
         self.assertFalse(board("frob", self.env, which=ON_PATH, run=Recorder())["ok"])
         self.assertIn("/flow-herdr install", board("next", self.env, which=ON_PATH, run=Recorder())["message"])

@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, assign, boardOf, boardTab, cards, columns, dropGroup, events, finished, gateOf, groupBy, grouping, groups, labelled, progressOf, signature, since, stageOf, steps, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
+import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, events, finished, gateOf, groupBy, grouping, groups, labelled, progressOf, signature, since, stageOf, steps, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -141,22 +141,60 @@ const on = (over = {}, ...agents) => ({ dir: "/r/docs/tasks/a", task: task(over)
 const agent = (status, tab = "tb1") => ({ address: "t1", info: { status, tab } });
 const gate = (n) => ({ phase: n === 1 ? "plan-review" : "reporting", gates: [{ n, state: "waiting", before: n === 1 ? "implementation" : "wind-down" }] });
 
+// The gates as hooks/flow_status.py gates() reads them, with none approved
+// yet: the one ahead of the phase is waiting as soon as the phase starts.
+const FULL = ["setup", "research", "planning", "plan-review", "implementation", "code-review", "reporting", "wind-down", "complete"];
+const LITE = ["setup", "planning", "plan-review", "implementation", "code-review", "wind-down", "complete"];
+function snap(phase, chain = FULL) {
+  const at = chain.indexOf(phase);
+  const gates = [[1, "implementation"], [2, "wind-down"]].map(([n, before]) => {
+    const i = chain.indexOf(before);
+    return { n, before, state: at >= i ? "passed" : at === i - 1 ? "waiting" : "ahead" };
+  });
+  return { phase, phaseIndex: at, chain, mode: chain === LITE ? "lite" : "full", gates };
+}
+
+test("removing a group forgets its folds, the board's too", () => {
+  let g = assign(groupBy(grouping({}), "manual"), "/a", "x");
+  g = toggleGroup(toggleGroup(g, "group:x"), boardKey("group:x"));
+  assert.deepEqual(g.closed, ["group:x", "board:group:x"]);
+  g = assign(dropGroup(g, "x"), "/a", "x");
+  assert.deepEqual(g.closed, []);
+});
+
 test("boardOf takes only the boards it knows from the props", () => {
   assert.equal(boardOf({ view: "stages" }), "stages");
   assert.equal(boardOf({ view: "next" }), "next");
   for (const p of [undefined, null, {}, { view: "toString" }, { view: "list" }]) assert.equal(boardOf(p), null);
 });
 
-test("a card's stage: its phase, unless a gate waits, which is a column of its own", () => {
-  assert.deepEqual(["setup", "research", "planning", "plan-review", "implementation", "code-review", "reporting", "wind-down", "complete"]
-    .map((phase) => stageOf(on({ phase, gates: [] }))), [0, 0, 0, 0, 2, 2, 2, 4, 4]);
-  assert.equal(stageOf(on(gate(1))), 1);
-  assert.equal(stageOf(on(gate(2))), 3);
+test("a card's stage: its phase, or the gate's column once the gate is the person's", () => {
+  // while its agent works, a task in the phase before a gate is still in that phase's stage
+  assert.deepEqual(FULL.map((phase) => stageOf(on(snap(phase), agent("working")))), [0, 0, 0, 0, 2, 2, 2, 4, 4]);
+  assert.deepEqual(LITE.map((phase) => stageOf(on(snap(phase, LITE), agent("working")))), [0, 0, 0, 2, 2, 4, 4]);
+  // when it stops, or with no session, the gate is waiting on the person
+  assert.deepEqual(FULL.map((phase) => stageOf(on(snap(phase), agent("idle")))), [0, 0, 0, 1, 2, 2, 3, 4, 4]);
+  assert.deepEqual(LITE.map((phase) => stageOf(on(snap(phase, LITE)))), [0, 0, 1, 2, 3, 4, 4]);
   assert.equal(stageOf({ dir: "/x", task: null, labels: { phase: "", gate: null }, agents: [] }), 0);
+  assert.equal(stageOf({ dir: "/x", task: null, labels: { phase: "reporting", gate: 2 }, agents: [] }), 3);
+});
+
+test("a gate isn't the person's while an agent on the task is still working", () => {
+  const working = on(snap("plan-review"), agent("working"));
+  assert.equal(gateOf(working), null); // the critic is still running
+  assert.equal(gateOf(on(snap("plan-review"), agent("idle"))), 1);
+  assert.equal(gateOf(on(snap("plan-review"), agent("idle"), agent("working"))), null);
+  assert.equal(gateOf({ dir: "/x", task: null, labels: { gate: 2 }, agents: [agent("working")] }), null);
+  // so it neither ranks first nor counts as waiting in its group
+  const list = cards([{ repo: "/r", tasks: [task({ dir: "/a", ...snap("plan-review"), updated: "2026-11-01" })] }],
+    [{ address: "t1", dir: "/a", task: "a", info: { status: "working" } }]);
+  assert.equal(groups(list, grouping({}))[0].waiting, 0);
 });
 
 test("whose turn: a gate, an agent that stopped, one working, none on it, or done", () => {
-  assert.equal(turnOf(on(gate(1), agent("working"))), "gate");
+  assert.equal(turnOf(on(gate(1), agent("idle"))), "gate");
+  assert.equal(turnOf(on(gate(1))), "gate");
+  assert.equal(turnOf(on(gate(1), agent("working"))), "working"); // still on the phase before it
   assert.equal(turnOf(on({}, agent("idle"))), "turn");
   assert.equal(turnOf(on({}, agent("blocked"))), "turn");
   assert.equal(turnOf(on({}, agent("idle"), agent("working"))), "working");

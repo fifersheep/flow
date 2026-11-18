@@ -241,7 +241,14 @@ def board(view, env=os.environ, which=shutil.which, run=subprocess.run):
         return {"ok": False, "message": "the flow panel isn't installed: run /flow-herdr install"}
     name = BOARDS[view]
     r = run(["herdr-app", "ls"], capture_output=True, text=True, timeout=TIMEOUT)
-    space = next((s for s in json.loads(r.stdout or "{}").get("spaces", []) if s.get("active")), {})
+    try:
+        spaces = json.loads(r.stdout).get("spaces", []) if r.returncode == 0 else None
+    except (ValueError, AttributeError):
+        spaces = None
+    if spaces is None:  # can't see the tabs: making one could make a second
+        why = (r.stderr or r.stdout or "").strip() or f"exit {r.returncode}"
+        return {"ok": False, "message": f"couldn't list Herdr's tabs: {why}"}
+    space = next((s for s in spaces if s.get("active")), {})
     tab = next((t for t in space.get("tabs", []) if t.get("name") == name), None)
     if tab:
         do("tab.select", run=run, id=tab["id"])

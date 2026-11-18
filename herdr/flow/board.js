@@ -13,14 +13,13 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar } from "gpui-base";
 import { run, spaces } from "herdr";
 import {
-  BOARDS, HEX, STAGES, ago, boardTab, columns, finished, gateOf, groups, phaseOf,
+  BOARDS, HEX, STAGES, ago, boardKey, boardTab, columns, finished, gateOf, groups, phaseOf,
   progressOf, short, since, slugOf, stageOf, toggleGroup, turnOf,
 } from "./model.js";
 
 const GATE_W = 220;
 const LANE_W = 170;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const laneKey = (key) => `board:${key}`; // folded on the board, apart from the panel's groups
 
 /** Shows a board's tab in the shown space, making it if it isn't there. */
 export function openBoard(view) {
@@ -101,7 +100,7 @@ function stages(ctx, all) {
 /** A lane: its heading (click to fold), then its cards in their stages. */
 function lane(ctx, s, k) {
   const { g, t, regroup } = ctx;
-  const key = laneKey(s.key), closed = g.closed.includes(key);
+  const key = boardKey(s.key), closed = g.closed.includes(key);
   const done = s.cards.filter((c) => turnOf(c) === "done");
   const live = s.cards.filter((c) => turnOf(c) !== "done");
   const by = [0, 1, 2, 3, 4].map((i) => live.filter((c) => stageOf(c) === i));

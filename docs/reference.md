@@ -205,7 +205,11 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   manual** switch as the panel), across **Shape** (setup to plan review),
   **Gate 1**, **Build** (implement to report), **Gate 2** and **Land**
   (wrap, done). A gate is a column of its own, straw and dashed, so a task
-  waiting on you stands in it. Each task is a chip: its name, where it is,
+  waiting on you stands in it. A gate counts as yours once the task's agent
+  stops: flow enters plan review and reporting before their work is done
+  (the critic, the report and PR), so until then the task stays in Shape or
+  Build, and in Agent working. The panel's straw gate block and its
+  "waiting on you" counts follow the same rule. Each task is a chip: its name, where it is,
   how far through the checklist, and its deviations. A lane's heading folds
   it; the board's folds are its own, apart from the panel's groups.
 

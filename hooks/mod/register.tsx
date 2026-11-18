@@ -145,7 +145,7 @@ const HERDR_VERBS: Record<string, string[]> = {
 /** /flow-herdr [install|remove|board|next]: hooks/flow_herdr.py does it; its one line is the answer. */
 async function herdrCommand($: EngineInterface, args: string): Promise<{ text: string }> {
   const asked = args.trim().toLowerCase()
-  const verb = HERDR_VERBS[asked]
+  const verb = Object.hasOwn(HERDR_VERBS, asked) ? HERDR_VERBS[asked] : undefined
   if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, board, next, or nothing to open the panel` }
   const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, ...verb], { timeoutMs: 60000 })
   const r = JSON.parse(run.stdout) as { ok: boolean; message: string }

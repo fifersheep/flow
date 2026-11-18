@@ -38,9 +38,9 @@ const regroup = (change) => setShared(GROUPS, change(groupState()));
 let heard = null; // the labels as last read; null until the first reading
 
 function listen() {
-  const now = labelled(terminals());
-  if (heard === null) { heard = now; return; } // what was already so isn't news
-  const news = events(heard, now);
+  const status = new Map(agents().map((a) => [a.address, a.status]));
+  const now = labelled(terminals()).map((a) => ({ ...a, working: status.get(a.address) === "working" }));
+  const news = events(heard ?? [], now); // the first reading: what was already so isn't news
   heard = now;
   const f = focused(), w = appWindow();
   for (const e of news) {

@@ -54,17 +54,28 @@ export const gateAsk = (n) => (n === 1 ? "Gate 1 · approve the plan" : "Gate 2 
  * hear about: a gate opening, a phase moving, a task completing. Only moves
  * of one task on one terminal count; a label appearing (a session starting)
  * or going (it ending) is not news.
+ *
+ * A gate is news once its agent stops working (`working`, from Herdr's agent
+ * status): flow labels the gate as soon as the phase before it starts, while
+ * the critic, or the report and PR, is still to come. It's news once per gate:
+ * each reading carries `told`, the gate already announced, into the next.
  */
 export function events(prev, next) {
   const before = new Map((prev ?? []).map((a) => [a.address, a]));
   const out = [];
   for (const a of next) {
     const was = before.get(a.address);
-    if (!was || was.task !== a.task) continue;
+    a.told = was && was.task === a.task && was.gate === a.gate ? was.told ?? null : null;
+    if (!was || was.task !== a.task) {
+      if (a.gate && !a.working) a.told = a.gate; // already waiting when first seen: not news
+      continue;
+    }
     const base = { address: a.address, task: a.task };
+    const ready = a.gate && !a.working && a.told !== a.gate;
+    if (ready) a.told = a.gate;
     if (a.phase === "complete" && was.phase !== "complete") {
       out.push({ ...base, kind: "complete", level: "success", title: `${a.task} is complete` });
-    } else if (a.gate && a.gate !== was.gate) {
+    } else if (ready) {
       out.push({ ...base, kind: "gate", level: "warning", title: gateAsk(a.gate), body: `${a.task}: ${gateDoc(a.gate)} is ready for you` });
     } else if (a.phase !== was.phase) {
       out.push({ ...base, kind: "phase", level: "info", title: `${a.task} → ${short(a.phase)}` });

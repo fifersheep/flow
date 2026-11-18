@@ -34,6 +34,27 @@ test("a gate opening is news; a phase moving is news; completing is news", () =>
   assert.equal(news[1].title, "b → review");
 });
 
+test("a gate is news once its agent stops working, and once per gate", () => {
+  const read = (over, working) => labelled([term("t2", flow({ "flow.phase": "plan-review", ...over }))]).map((a) => ({ ...a, working }));
+  let heard = read({ "flow.phase": "planning" }, true);
+  events([], heard);
+  const step = (over, working) => { const now = read(over, working); const news = events(heard, now); heard = now; return news.map((e) => e.kind); };
+  assert.deepEqual(step({ "flow.gate": "1" }, true), ["phase"]); // plan review begins: the critic is still to run
+  assert.deepEqual(step({ "flow.gate": "1" }, true), []);
+  assert.deepEqual(step({ "flow.gate": "1" }, false), ["gate"]); // the agent stopped: now it's yours
+  assert.deepEqual(step({ "flow.gate": "1" }, true), []); // a reply at the gate...
+  assert.deepEqual(step({ "flow.gate": "1" }, false), []); // ...and its end isn't news again
+  assert.deepEqual(step({ "flow.phase": "planning" }, true), ["phase"]); // sent back to planning
+  assert.deepEqual(step({ "flow.gate": "1" }, false), ["gate"]); // a new wait at the gate is
+});
+
+test("a gate already waiting when first seen is not news later", () => {
+  const now = () => labelled([term("t2", flow({ "flow.phase": "plan-review", "flow.gate": "1" }))]).map((a) => ({ ...a, working: false }));
+  const first = now();
+  assert.deepEqual(events([], first), []);
+  assert.deepEqual(events(first, now()), []);
+});
+
 test("a session starting, ending or switching task is not news", () => {
   const one = labelled([term("t2", flow({ "flow.gate": "2" }))]);
   assert.deepEqual(events([], one), []);

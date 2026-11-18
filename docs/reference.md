@@ -226,5 +226,9 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   While a copy of the panel or a board is running (open in any tab, or opened once and
   hidden), it posts a Herdr notification when a gate opens, a phase moves
   or a task completes, unless you're looking at that agent. Clicking one
-  goes to the agent. Herdr starts a mod the first time it's shown, so the
-  notifications start once the panel has been on screen.
+  goes to the agent. A gate's notification waits until the agent on that
+  terminal stops working, the same rule as the boards: entering plan review
+  is a phase note, and "Gate 1 · approve the plan" comes when the critic is
+  done. Each gate is announced once, so talking to the agent while it waits
+  doesn't announce it again. Herdr starts a mod the first time it's shown,
+  so the notifications start once the panel has been on screen.

@@ -9,7 +9,7 @@ Layout: `skills/` (phase skills), `agents/` (subagents), `hooks/` (the
 validator and its shell-command reader `flow_shell.py`, the snapshot script,
 the worktree opener, the Herdr bridge `flow_herdr.py` (splits and terminal
 labels), and the display mod in `hooks/mod/`), `herdr/flow/` (the Herdr app's flow
-panel, a Herdr mod), `types/` (the mod's state contract), `templates/` (files the
+panel and board tabs, a Herdr mod), `types/` (the mod's state contract), `templates/` (files the
 skills write into target repos), `.claude-plugin/` (manifests), `scripts/`
 (`scripts/demo/` retakes the README's screenshots), `tests/`.
 

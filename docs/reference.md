@@ -179,12 +179,47 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   never answers a gate: that stays in the session, where the validator
   holds it.
 
+  The cards sit in groups, and the header's **repo | manual** switch picks
+  how. By repo, each repo gets a group, and a worktree's tasks go in its
+  repo's group. A repo with a waiting gate comes first. Manual is for work
+  that spans repos: in this mode each card has a **group ▾** menu that puts
+  it into one of your groups or into a new one you name, or takes it out
+  again. Groups stay in the order you made them, and cards in no group come
+  last. An empty group stays until you remove it with **×**. Click a
+  group's heading to fold it. Herdr's shared state (`flow.groups`) holds
+  the switch, the groups and the folded headings, so every panel copy
+  agrees and they last through a restart.
+
   Claude Code reads a plugin's hooks when a session starts, so a session
   started before flow was updated runs the old ones and labels nothing.
   The panel lists those sessions (a Claude Code agent with no flow
   label): restart each with `claude --continue`, and they show.
 
-  While a copy of the panel is running (open in any tab, or opened once and
+- **The boards.** The same tasks across a whole Herdr tab, two ways, each
+  its own tab: `/flow-herdr board` (or the panel's **▦ board**) opens
+  **flow · stages**, `/flow-herdr next` opens **flow · next up**, and each
+  board's header opens the other. Asking again shows the tab already in the
+  shown space rather than making another.
+
+  *Stages* has a lane per repo, or per group you made (the same **repo |
+  manual** switch as the panel), across **Shape** (setup to plan review),
+  **Gate 1**, **Build** (implement to report), **Gate 2** and **Land**
+  (wrap, done). A gate is a column of its own, straw and dashed, so a task
+  waiting on you stands in it. Each task is a chip: its name, where it is,
+  how far through the checklist, and its deviations. A lane's heading folds
+  it; the board's folds are its own, apart from the panel's groups.
+
+  *Next up* sorts by who has to act: **Needs you** (a gate is open, then
+  tasks whose agent has stopped — blocked, done or idle — the longest wait
+  first), **Agent working**, **Parked** (active, no session on it) and
+  **Done**. Its cards are the panel's cards.
+
+  On both, tasks completed in the last seven days show as one line each
+  under Land or in Done. Click a chip or a card for the whole card at the
+  side, with its tabs and **Go to agent**. Like the panel, a board shows and
+  goes to the agent; the gates are answered in the session.
+
+  While a copy of the panel or a board is running (open in any tab, or opened once and
   hidden), it posts a Herdr notification when a gate opens, a phase moves
   or a task completes, unless you're looking at that agent. Clicking one
   goes to the agent. Herdr starts a mod the first time it's shown, so the

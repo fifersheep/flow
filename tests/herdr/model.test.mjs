@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cards, events, gateOf, labelled, progressOf, signature, steps, unreporting, wanted } from "../../herdr/flow/model.js";
+import { ago, assign, boardOf, boardTab, cards, columns, dropGroup, events, finished, gateOf, groupBy, grouping, groups, labelled, progressOf, signature, since, stageOf, steps, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -90,4 +90,113 @@ test("unreporting is the Claude Code agents whose terminal has no flow label", (
   // a task's labels from a session that started before flow.version existed
   assert.deepEqual(unreporting([{ address: "t2", labels: { "flow.task": "x" } }], agents.slice(1, 2)), []);
   assert.deepEqual(unreporting(undefined, undefined), []);
+});
+
+const card = (dir, repo, gate = null) => ({ dir, repo, task: null, labels: gate ? { gate } : null, agents: [] });
+
+test("cards carry the repo of the snapshot they came from", () => {
+  const list = cards([{ root: "/wt", repo: "/r", tasks: [task()] }, { root: "/s", tasks: [task({ dir: "/s/docs/tasks/b" })] }],
+    labelled([term("t9", flow({ "flow.dir": "/x/docs/tasks/x" }))]));
+  assert.deepEqual(list.map((c) => [c.dir, c.repo]), [["/x/docs/tasks/x", null], ["/r/docs/tasks/a", "/r"], ["/s/docs/tasks/b", "/s"]]);
+});
+
+test("grouping reads anything, keeping only what makes sense", () => {
+  assert.deepEqual(grouping(undefined), { by: "repo", names: [], member: {}, closed: [] });
+  assert.deepEqual(grouping({ by: "manual", names: ["a", "a", 3, " "], member: { "/d": "a", "/e": "gone" }, closed: ["k", 1] }),
+    { by: "manual", names: ["a"], member: { "/d": "a" }, closed: ["k"] });
+  assert.equal(groupBy(grouping({}), "manual").by, "manual");
+  assert.equal(groupBy(grouping({}), "nonsense").by, "repo");
+});
+
+test("by repo, a group per repo in the order its first card comes", () => {
+  const list = [card("/a/1", "/w/app", 1), card("/b/1", "/w/api"), card("/a/2", "/w/app"), card("/c/1", null)];
+  const out = groups(list, grouping({}));
+  assert.deepEqual(out.map((x) => [x.key, x.name, x.cards.length, x.waiting]),
+    [["repo:/w/app", "app", 2, 1], ["repo:/w/api", "api", 1, 0], ["repo:", "reading…", 1, 0]]);
+  // two repos with one name show their parent too
+  assert.deepEqual(groups([card("/1", "/x/app"), card("/2", "/y/app")], grouping({})).map((x) => x.name), ["x/app", "y/app"]);
+});
+
+test("by hand, the person's groups in order, empty ones too, then the rest", () => {
+  let g = groupBy(grouping({}), "manual");
+  const list = [card("/a/1", "/w/app"), card("/b/1", "/w/api"), card("/c/1", "/w/web")];
+  assert.deepEqual(groups(list, g).map((x) => [x.name, x.cards.length]), [["all tasks", 3]]);
+  g = assign(g, "/b/1", " checkout ");
+  g = assign(g, "/a/1", "checkout");
+  g = assign(g, "/c/1", "later");
+  g = assign(g, "/c/1", null);
+  assert.deepEqual(g.names, ["checkout", "later"]);
+  assert.deepEqual(groups(list, g).map((x) => [x.key, x.cards.map((c) => c.dir)]),
+    [["group:checkout", ["/a/1", "/b/1"]], ["group:later", []], ["ungrouped", ["/c/1"]]]);
+  g = toggleGroup(g, "group:checkout");
+  assert.equal(groups(list, g)[0].closed, true);
+  g = dropGroup(g, "checkout");
+  assert.deepEqual(g, { by: "manual", names: ["later"], member: {}, closed: [] });
+  assert.equal(toggleGroup(toggleGroup(g, "k"), "k").closed.length, 0);
+});
+
+// The board
+
+const on = (over = {}, ...agents) => ({ dir: "/r/docs/tasks/a", task: task(over), labels: null, agents, repo: "/r" });
+const agent = (status, tab = "tb1") => ({ address: "t1", info: { status, tab } });
+const gate = (n) => ({ phase: n === 1 ? "plan-review" : "reporting", gates: [{ n, state: "waiting", before: n === 1 ? "implementation" : "wind-down" }] });
+
+test("boardOf takes only the boards it knows from the props", () => {
+  assert.equal(boardOf({ view: "stages" }), "stages");
+  assert.equal(boardOf({ view: "next" }), "next");
+  for (const p of [undefined, null, {}, { view: "toString" }, { view: "list" }]) assert.equal(boardOf(p), null);
+});
+
+test("a card's stage: its phase, unless a gate waits, which is a column of its own", () => {
+  assert.deepEqual(["setup", "research", "planning", "plan-review", "implementation", "code-review", "reporting", "wind-down", "complete"]
+    .map((phase) => stageOf(on({ phase, gates: [] }))), [0, 0, 0, 0, 2, 2, 2, 4, 4]);
+  assert.equal(stageOf(on(gate(1))), 1);
+  assert.equal(stageOf(on(gate(2))), 3);
+  assert.equal(stageOf({ dir: "/x", task: null, labels: { phase: "", gate: null }, agents: [] }), 0);
+});
+
+test("whose turn: a gate, an agent that stopped, one working, none on it, or done", () => {
+  assert.equal(turnOf(on(gate(1), agent("working"))), "gate");
+  assert.equal(turnOf(on({}, agent("idle"))), "turn");
+  assert.equal(turnOf(on({}, agent("blocked"))), "turn");
+  assert.equal(turnOf(on({}, agent("idle"), agent("working"))), "working");
+  assert.equal(turnOf(on({})), "parked");
+  assert.equal(turnOf(on({ phase: "complete", isActive: false })), "done");
+});
+
+test("finished is this week's completed tasks that aren't cards yet, newest first", () => {
+  const done = (dir, updated) => task({ dir, updated, phase: "complete", isActive: false });
+  const snaps = [{ repo: "/r", tasks: [done("/a", "2026-11-17"), done("/b", "2026-11-01"), done("/c", "2026-11-12"), task({ dir: "/d" }), done("/e", "2026-11-18")] }];
+  const out = finished(snaps, [{ dir: "/e" }], "2026-11-18");
+  assert.deepEqual(out.map((c) => c.dir), ["/a", "/c"]);
+  assert.equal(out[0].repo, "/r");
+  assert.deepEqual(out[0].agents, []);
+});
+
+test("since is the latest change among a card's agents' tabs; ago says it roughly", () => {
+  const tabs = new Map([["tb1", { changed_at: 1000 }], ["tb2", { changed_at: 5000 }]]);
+  assert.equal(since(on({}, agent("idle", "tb1"), agent("idle", "tb2")), tabs), 5000);
+  assert.equal(since(on({}, agent("idle", "nope")), tabs), null);
+  const min = 60000;
+  assert.deepEqual([0, 4 * min, 125 * min, 3 * 1440 * min].map((d) => ago(0, d)), ["<1m", "4m", "2h", "3d"]);
+});
+
+test("the next board: gates then your turn, longest wait first; then working, parked, done", () => {
+  const c = (dir, over, ...agents) => ({ ...on(over, ...agents), dir });
+  const list = [c("/w", {}, agent("working")), c("/g", gate(2), agent("idle")), c("/t1", {}, agent("idle")),
+    c("/t2", {}, agent("done")), c("/p", {}), c("/d", { phase: "complete" })];
+  const when = (x) => ({ "/t1": 300, "/t2": 100 })[x.dir] ?? null;
+  const cols = columns(list, when);
+  assert.deepEqual(cols.map((k) => k.sections.map((s) => s.cards.map((x) => x.dir))),
+    [[["/g"], ["/t2", "/t1"]], [["/w"]], [["/p"]], [["/d"]]]);
+});
+
+test("boardTab finds a board's tab by name in the shown space only", () => {
+  const spaces = [
+    { active: false, tabs: [{ id: "x", name: "flow · stages" }] },
+    { active: true, tabs: [{ id: "a", name: "1" }, { id: "b", name: "flow · next up" }] },
+  ];
+  assert.equal(boardTab(spaces, "next"), "b");
+  assert.equal(boardTab(spaces, "stages"), null);
+  assert.equal(boardTab([], "next"), null);
 });

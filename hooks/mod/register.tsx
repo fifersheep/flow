@@ -137,14 +137,17 @@ async function openFromButton($: EngineInterface, kind: OpenKind, dir: string): 
   else $.ui.toast(`flow ${r.needsSetup ? GLYPH.deviation : GLYPH.next} ${r.message}`)
 }
 
-const HERDR_VERBS: Record<string, string> = { '': 'panel', open: 'panel', install: 'install', remove: 'remove' }
+const HERDR_VERBS: Record<string, string[]> = {
+  '': ['panel'], open: ['panel'], install: ['install'], remove: ['remove'],
+  board: ['board', 'stages'], stages: ['board', 'stages'], next: ['board', 'next'],
+}
 
-/** /flow-herdr [install|remove]: hooks/flow_herdr.py does it; its one line is the answer. */
+/** /flow-herdr [install|remove|board|next]: hooks/flow_herdr.py does it; its one line is the answer. */
 async function herdrCommand($: EngineInterface, args: string): Promise<{ text: string }> {
   const asked = args.trim().toLowerCase()
   const verb = HERDR_VERBS[asked]
-  if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, or nothing to open the panel` }
-  const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, verb], { timeoutMs: 60000 })
+  if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, board, next, or nothing to open the panel` }
+  const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, ...verb], { timeoutMs: 60000 })
   const r = JSON.parse(run.stdout) as { ok: boolean; message: string }
   return { text: `${r.ok ? GLYPH.next : GLYPH.blocked} ${r.message}` }
 }
@@ -215,8 +218,8 @@ export const register: Register = (on, options) => {
     })
     await $.command.register({
       name: 'flow-herdr',
-      description: "In the Herdr app: open the flow panel beside this session, or install or remove it",
-      argumentHint: '[install|remove]',
+      description: "In the Herdr app: open the flow panel beside this session, a flow board tab (board, next), or install or remove it",
+      argumentHint: '[install|remove|board|next]',
       immediate: true,
     })
     if (!e.isInteractive) return started

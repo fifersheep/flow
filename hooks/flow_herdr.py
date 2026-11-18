@@ -68,6 +68,9 @@ MOD_FILES = lambda: sorted(f for f in MOD_SRC.iterdir() if f.is_file() and f.suf
 KEYS = ("flow.task", "flow.phase", "flow.mode", "flow.progress", "flow.gate", "flow.dir")
 VERSION = "flow.version"  # on from the session's start to its end, task or not
 BELOW = 12  # repos read under a folder that isn't one
+# the board's two views, each a tab of its own named so it can be found again
+# (herdr/flow/model.js BOARDS)
+BOARDS = {"stages": "flow · stages", "next": "flow · next up"}
 TIMEOUT = 5
 
 
@@ -228,6 +231,32 @@ def panel(env=os.environ, which=shutil.which, run=subprocess.run):
     return {"ok": True, "message": "opened the flow panel beside this session"}
 
 
+def board(view, env=os.environ, which=shutil.which, run=subprocess.run):
+    """Show a board's tab in the shown space, making it when there isn't one."""
+    if view not in BOARDS:
+        return {"ok": False, "message": f"no \"{view}\" board: stages or next"}
+    if not in_herdr(env, which):
+        return {"ok": False, "message": "this session isn't in a Herdr terminal"}
+    if installed(env) is None:
+        return {"ok": False, "message": "the flow panel isn't installed: run /flow-herdr install"}
+    name = BOARDS[view]
+    r = run(["herdr-app", "ls"], capture_output=True, text=True, timeout=TIMEOUT)
+    try:
+        spaces = json.loads(r.stdout).get("spaces", []) if r.returncode == 0 else None
+    except (ValueError, AttributeError):
+        spaces = None
+    if spaces is None:  # can't see the tabs: making one could make a second
+        why = (r.stderr or r.stdout or "").strip() or f"exit {r.returncode}"
+        return {"ok": False, "message": f"couldn't list Herdr's tabs: {why}"}
+    space = next((s for s in spaces if s.get("active")), {})
+    tab = next((t for t in space.get("tabs", []) if t.get("name") == name), None)
+    if tab:
+        do("tab.select", run=run, id=tab["id"])
+        return {"ok": True, "message": f"showed the {name} tab"}
+    do("tab.new", run=run, name=name, mod=MOD, props=json.dumps({"view": view}))
+    return {"ok": True, "message": f"opened the {name} board in a tab"}
+
+
 def session_start(payload, env=os.environ, which=shutil.which, run=subprocess.run):
     """Refresh an installed panel; label the session with the task it's on."""
     sync(env)
@@ -246,7 +275,7 @@ def snapshots(cwd):
     that holds repos rather than sitting in one, those of the repos under it
     that have flow tasks (at most BELOW of them)."""
     from flow_common import artifacts_dir
-    from flow_status import root_of, snapshot
+    from flow_status import root_of
     here = Path(cwd).resolve()
     is_root = lambda d: (d / ".git").exists() or (d / ".flow.md").is_file()
     if root_of(here) != here or is_root(here):
@@ -257,6 +286,24 @@ def snapshots(cwd):
     except OSError:
         below = []
     return [snapshot(d) for d in below[:BELOW]] or [snapshot(here)]
+
+
+def repo_of(root):
+    """The repo a checkout belongs to: its main checkout, so a worktree's tasks
+    group with the repo's own. A folder that isn't in git is its own."""
+    from flow_status import git
+    common = (git(root, "rev-parse", "--path-format=absolute", "--git-common-dir") or "").strip()
+    if not common:
+        return str(root)
+    common = Path(common)
+    return str(common.parent if common.name == ".git" else common)
+
+
+def snapshot(cwd):
+    """flow_status's snapshot, with the repo it's of (repo_of) for grouping."""
+    from flow_status import snapshot as read
+    s = read(cwd)
+    return {**s, "repo": repo_of(s["root"])}
 
 
 def do(command, run=subprocess.run, **args):
@@ -307,6 +354,13 @@ def main(argv):
         except Exception:
             print("[]")
         return 0
+    if argv[:1] == ["board"] and len(argv) in (1, 2):
+        try:
+            doc = board(argv[1] if len(argv) == 2 else "stages")
+        except Exception as exc:
+            doc = {"ok": False, "message": str(exc)}
+        print(json.dumps(doc))
+        return 0
     if argv[:1] in (["install"], ["remove"], ["panel"]):
         try:
             doc = {"install": install, "remove": remove, "panel": panel}[argv[0]]()
@@ -314,7 +368,7 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | snapshots DIR", file=sys.stderr)
+    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] | snapshots DIR", file=sys.stderr)
     return 2
 
 

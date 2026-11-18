@@ -7,9 +7,10 @@
 // in the Claude Code session, where the validator holds them.
 
 import { View, div } from "gpui-kit";
-import { v_flex, h_flex, TextView, Scrollbar } from "gpui-base";
-import { agents, appHome, exec, focused, notify, panes, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
-import { HEX, cards, events, gateAsk, gateOf, labelled, phaseOf, progressOf, short, signature, slugOf, steps, unreporting, wanted } from "./model.js";
+import { v_flex, h_flex, Input, InputState, Popover, TextView, Scrollbar } from "gpui-base";
+import { agents, appHome, exec, focused, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
+import { board, openBoard } from "./board.js";
+import { HEX, assign, boardOf, cards, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
 
 const TABS = ["progress", "plan", "decisions", "deviations"];
 const ROLE = { done: HEX.done, current: HEX.current, you: HEX.you };
@@ -25,15 +26,21 @@ function view() {
 }
 const show = (open, tab = "progress") => setShared(VIEW, { open, tab });
 
+// How the cards are grouped (by repo, or by hand) and the groups made by hand:
+// shared the same way, so every copy groups alike. See grouping() in model.js.
+const GROUPS = "flow.groups";
+const groupState = () => grouping(shared(GROUPS));
+const regroup = (change) => setShared(GROUPS, change(groupState()));
+
 // Notifications belong to the module, not to a copy: module code runs once and
 // is shared by every copy, so two open panels toast once. A copy that isn't on
 // screen isn't drawn, but its timers run, so a timer listens, not render.
 let heard = null; // the labels as last read; null until the first reading
 
 function listen() {
-  const now = labelled(terminals());
-  if (heard === null) { heard = now; return; } // what was already so isn't news
-  const news = events(heard, now);
+  const status = new Map(agents().map((a) => [a.address, a.status]));
+  const now = labelled(terminals()).map((a) => ({ ...a, working: status.get(a.address) === "working" }));
+  const news = events(heard ?? [], now); // the first reading: what was already so isn't news
   heard = now;
   const f = focused(), w = appWindow();
   for (const e of news) {
@@ -51,7 +58,8 @@ function here() {
 }
 
 export default class Flow extends View {
-  init(_props, cx) {
+  init(given, cx) {
+    this.board = boardOf(given ?? props()); // "stages" or "next" when opened as a board tab
     this.plugin = null; //        the flow plugin's folder, from flow.json
     this.snaps = new Map(); //    repo root -> snapshot
     this.rootOf = new Map(); //   folder asked about -> the repo roots it shows
@@ -59,6 +67,15 @@ export default class Flow extends View {
     this.watching = new Set();
     this.sig = null;
     this.error = null;
+    this.menu = null; //          the card whose group menu is open (this copy's)
+    this.newGroup = InputState.new({ placeholder: "New group" });
+    this.newGroup.on("submit", (_e, cx) => {
+      const name = this.newGroup.value().trim(), dir = this.menu;
+      this.newGroup.set_value("");
+      this.menu = null;
+      if (name && dir) regroup((g) => assign(g, dir, name));
+      cx.notify();
+    });
     cx.spawn(async (cx) => {
       try {
         const cfg = JSON.parse((await readTextFile(`${appHome()}/mods/flow/flow.json`)) ?? "null");
@@ -71,6 +88,8 @@ export default class Flow extends View {
     cx.timer.every(1000, () => listen());
     // a task folder appearing changes no label: look again now and then
     cx.timer.every(30000, (cx) => { for (const dir of [...this.rootOf.keys()]) this.load(dir, cx); });
+    // a board says how long each task has waited on you: keep that current
+    if (this.board) cx.timer.every(60000, (cx) => cx.notify());
   }
 
   load(dir, cx) {
@@ -118,19 +137,77 @@ export default class Flow extends View {
     const roots = new Set(want.flatMap((d) => this.rootOf.get(d) ?? []));
     const list = cards([...roots].map((r) => this.snaps.get(r)), live.map((a) => ({ ...a, info: status.get(a.address) })));
     const waiting = list.filter(gateOf).length;
+    const g = groupState();
+    const index = new Map(list.map((c, i) => [c.dir, i]));
+    if (this.board) {
+      const snaps = [...roots].map((r) => this.snaps.get(r));
+      return board(this, this.board, { list, snaps, g, t, waiting, silent, show, regroup, opened: view().open });
+    }
 
     return v_flex().id("flow").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .child(h_flex().h(36).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(plural(list.length, "task")))
         .child(div().flex_1())
-        .when(waiting > 0, (e) => e.child(div().px(6).py(1).rounded(4).bg(HEX.you + "55").text_size(11).font_semibold().child(`${waiting} waiting on you`))))
+        .when(waiting > 0, (e) => e.child(div().px(6).py(1).rounded(4).bg(HEX.you + "55").text_size(11).font_semibold().child(`${waiting} waiting on you`)))
+        .child(this.groupBy(g, t))
+        .child(this.button("open-board", "▦ board", t, () => openBoard("stages"))))
       .child(div().flex_1().min_h(0).relative()
         .child(v_flex().id("flow-list").absolute().inset_0().overflow_y_scroll().p(10).gap(10)
-          .children(list.map((c, i) => this.card(c, i, t)))
+          .children(list.length ? groups(list, g).map((s, k) => this.group(s, k, g, index, t)) : [])
           .when(!list.length, (e) => e.child(div().p(6).text_size(12).text_color(t.dim).child(this.error ?? (
             this.loading.size ? "Reading flow tasks…" : "No flow tasks here. A task shows up when a Claude Code session in Herdr works on one, or when this space's repo has one."))))
           .when(silent.length > 0, (e) => e.child(this.silent(silent, t))))
         .child(Scrollbar.vertical("flow-list").absolute().inset_0()));
+  }
+
+  /** The switch between grouping by repo and grouping by hand. */
+  groupBy(g, t) {
+    return h_flex().flex_none().rounded(5).border_1().border_color(t.border).children(["repo", "manual"].map((by) =>
+      div().id(`by-${by}`).px(6).py(1).text_size(10).cursor_pointer().hover((s) => s.bg(t.hover))
+        .when(g.by === by, (d) => d.bg(t.selected).text_color(t.foreground))
+        .when(g.by !== by, (d) => d.text_color(t.muted))
+        .on_click(() => regroup((x) => groupBy(x, by)))
+        .child(by)));
+  }
+
+  /** A group's heading (click to fold it) and its cards. */
+  group(s, k, g, index, t) {
+    const head = h_flex().id(`group-${k}`).flex_1().min_w(0).gap(6).items_center().cursor_pointer()
+      .on_click(() => regroup((x) => toggleGroup(x, s.key)))
+      .child(div().flex_none().w(10).text_size(10).text_color(t.dim).child(s.closed ? "▸" : "▾"))
+      .child(div().flex_1().min_w(0).truncate().text_size(11).font_semibold().text_color(t.muted).child(s.name))
+      .when(s.waiting > 0, (e) => e.child(div().flex_none().px(5).rounded(4).bg(HEX.you + "55").text_size(10).child(`${s.waiting} waiting`)))
+      .child(div().flex_none().text_size(10).text_color(t.dim).child(String(s.cards.length)));
+    return v_flex().flex_none().gap(8)
+      .child(h_flex().gap(6).items_center().px(2)
+        .child(head)
+        .when(s.kind === "group", (e) => e.child(div().id(`drop-${k}`).flex_none().px(4).rounded(4).text_size(11).text_color(t.dim)
+          .cursor_pointer().hover((d) => d.bg(t.hover).text_color(t.foreground))
+          .on_click(() => regroup((x) => dropGroup(x, s.name)))
+          .child("×"))))
+      .when(!s.closed && !s.cards.length, (e) => e.child(div().px(18).text_size(11).text_color(t.dim)
+        .child("No tasks in it. Use a card's group menu to put one here; × removes the group.")))
+      .when(!s.closed, (e) => e.children(s.cards.map((c) => this.card(c, index.get(c.dir), t, g))));
+  }
+
+  /** A card's group menu, grouping by hand: its groups, none, or a new one. */
+  groupMenu(c, i, g, t) {
+    const mine = g.member[c.dir] ?? null, open = this.menu === c.dir;
+    const pick = (id, label, on, name) => h_flex().id(id).gap(6).px(6).py(3).rounded(4).text_size(12)
+      .cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { this.menu = null; regroup((x) => assign(x, c.dir, name)); cx.notify(); })
+      .child(div().flex_none().w(10).text_color(HEX.done).child(on ? "✓" : ""))
+      .child(div().flex_1().min_w(0).truncate().child(label));
+    return Popover.new(`grp-${i}`).anchor("top_right").open(open)
+      .on_open_change((o, cx) => { this.menu = o ? c.dir : null; cx.notify(); })
+      .trigger(div().id(`grp-btn-${i}`).flex_none().px(5).py(1).rounded(4).border_1().border_color(t.border)
+        .text_size(10).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
+        .child(mine ? "move ▾" : "group ▾"))
+      .content(v_flex().w(220).p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.background).text_color(t.foreground)
+        .children(g.names.map((n, k) => pick(`grp-${i}-${k}`, n, n === mine, n)))
+        .when(Boolean(mine), (e) => e.child(pick(`grp-${i}-none`, "no group", false, null)))
+        .child(div().p(2).when(g.names.length > 0, (d) => d.mt(2).pt(6).border_t(1).border_color(t.border))
+          .child(Input.new(this.newGroup))));
   }
 
   /** Claude Code sessions that can't label their terminal: no task shows for them, so say why. */
@@ -146,14 +223,20 @@ export default class Flow extends View {
         .child(div().max_w(180).truncate().text_size(11).text_color(t.dim).child(a.title ?? ""))));
   }
 
-  card(c, i, t) {
+  /**
+   * A task's card. On a board, `inline: false` opens it in the drawer rather
+   * than under itself, `menu: false` leaves out the group menu, `you` borders
+   * it straw (its agent is waiting on you) and `note` joins the meta line.
+   */
+  card(c, i, t, g, { inline = true, menu = true, you = false, note = "" } = {}) {
     const task = c.task, gate = gateOf(c), open = view().open === c.dir, phase = phaseOf(c);
     const done = phase === "complete";
     const working = c.agents.some((a) => a.info?.status === "working");
-    const meta = [task?.mode ?? c.labels?.mode, task?.ticketId].filter(Boolean).join(" · ");
+    const meta = [task?.mode ?? c.labels?.mode, task?.ticketId, note].filter(Boolean).join(" · ");
     return v_flex().id(`card-${i}`).flex_none().p(12).gap(8).rounded(10).border_1()
-      .border_color(gate ? HEX.you : open ? t.input : t.border).bg(t.surface)
-      .child(v_flex().id(`card-head-${i}`).gap(2).cursor_pointer()
+      .border_color(gate || you ? HEX.you : open ? t.input : t.border).bg(t.surface)
+      .child(h_flex().gap(6).items_start()
+       .child(v_flex().id(`card-head-${i}`).flex_1().min_w(0).gap(2).cursor_pointer()
         .on_click(() => show(open ? null : c.dir))
         .child(h_flex().gap(8).items_center()
           .child(div().size(8).rounded(4).flex_none().bg(done ? HEX.done : gate ? HEX.you : HEX.current))
@@ -161,13 +244,14 @@ export default class Flow extends View {
           .when(Boolean(meta), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(meta)))
           .child(div().flex_none().w(10).text_size(10).text_color(t.dim).child(open ? "▾" : "▸")))
         .when(Boolean(task?.title), (e) => e.child(div().pl(16).truncate().text_size(12).text_color(t.muted).child(task.title))))
+       .when(menu && g.by === "manual", (e) => e.child(this.groupMenu(c, i, g, t))))
       .child(this.rail(c, t, working))
       .child(this.where(c, t, phase, done))
       .when(Boolean(task?.nextAction) && !done, (e) => e.child(div().when(!open, (d) => d.truncate()).text_size(12).text_color(t.muted).child(`▸ ${task.nextAction}`)))
       .when(Boolean(gate), (e) => e.child(this.gate(c, i, gate, t)))
       .when((task?.deviations.length ?? 0) > 0, (e) => e.child(div().text_size(11).text_color(HEX.wrong).child(`▲ ${plural(task.deviations.length, "deviation")}`)))
       .child(this.sessions(c, i, t))
-      .when(open, (e) => e.child(this.detail(c, i, t)));
+      .when(open && inline, (e) => e.child(this.detail(c, i, t)));
   }
 
   /** The chain: a bar per phase, a square per gate; the current phase breathes while its agent works. */

@@ -54,17 +54,28 @@ export const gateAsk = (n) => (n === 1 ? "Gate 1 · approve the plan" : "Gate 2 
  * hear about: a gate opening, a phase moving, a task completing. Only moves
  * of one task on one terminal count; a label appearing (a session starting)
  * or going (it ending) is not news.
+ *
+ * A gate is news once its agent stops working (`working`, from Herdr's agent
+ * status): flow labels the gate as soon as the phase before it starts, while
+ * the critic, or the report and PR, is still to come. It's news once per gate:
+ * each reading carries `told`, the gate already announced, into the next.
  */
 export function events(prev, next) {
   const before = new Map((prev ?? []).map((a) => [a.address, a]));
   const out = [];
   for (const a of next) {
     const was = before.get(a.address);
-    if (!was || was.task !== a.task) continue;
+    a.told = was && was.task === a.task && was.gate === a.gate ? was.told ?? null : null;
+    if (!was || was.task !== a.task) {
+      if (a.gate && !a.working) a.told = a.gate; // already waiting when first seen: not news
+      continue;
+    }
     const base = { address: a.address, task: a.task };
+    const ready = a.gate && !a.working && a.told !== a.gate;
+    if (ready) a.told = a.gate;
     if (a.phase === "complete" && was.phase !== "complete") {
       out.push({ ...base, kind: "complete", level: "success", title: `${a.task} is complete` });
-    } else if (a.gate && a.gate !== was.gate) {
+    } else if (ready) {
       out.push({ ...base, kind: "gate", level: "warning", title: gateAsk(a.gate), body: `${a.task}: ${gateDoc(a.gate)} is ready for you` });
     } else if (a.phase !== was.phase) {
       out.push({ ...base, kind: "phase", level: "info", title: `${a.task} → ${short(a.phase)}` });
@@ -102,7 +113,8 @@ export function cards(snapshots, agents) {
     return byDir.get(dir);
   };
   const tasks = new Map();
-  for (const s of snapshots ?? []) for (const t of s?.tasks ?? []) tasks.set(t.dir, t);
+  const repoOf = new Map();
+  for (const s of snapshots ?? []) for (const t of s?.tasks ?? []) { tasks.set(t.dir, t); repoOf.set(t.dir, s.repo ?? s.root ?? null); }
   for (const [dir, t] of tasks) if (t.isActive) card(dir).task = t;
   for (const a of agents ?? []) {
     if (!a.dir) continue;
@@ -111,6 +123,7 @@ export function cards(snapshots, agents) {
     c.labels ??= a;
     c.agents.push(a);
   }
+  for (const c of byDir.values()) c.repo = repoOf.get(c.dir) ?? null;
   const rank = (c) => (gateOf(c) ? 0 : c.agents.length ? 1 : 2);
   const updated = (c) => c.task?.updated ?? "";
   return [...byDir.values()].sort((a, b) =>
@@ -120,8 +133,14 @@ export function cards(snapshots, agents) {
 // The snapshot is read from the files, the labels from the last write a
 // session made: once a task's snapshot is in, it has the last word.
 
-/** The gate waiting on the person, or null. */
-export const gateOf = (c) => (c.task ? waitingGate(c.task) : c.labels?.gate ?? null);
+/**
+ * The gate waiting on the person, or null. flow marks a gate waiting as soon
+ * as the phase before it starts, and the agent still has that phase's work to
+ * do (the critic in plan review, the report and PR in reporting), so while an
+ * agent on the task is working, the gate isn't the person's yet.
+ */
+export const gateOf = (c) => (c.agents?.some((a) => a.info?.status === "working") ? null
+  : c.task ? waitingGate(c.task) : c.labels?.gate ?? null);
 
 /** {done, total} of the checklist, or null while it's empty. */
 export function progressOf(c) {
@@ -154,3 +173,173 @@ export function unreporting(terminals, agents) {
 /** A key that changes whenever any agent's flow labels do. */
 export const signature = (agents) =>
   JSON.stringify(agents.map((a) => [a.address, a.task, a.phase, a.gate, a.progress?.done, a.dir]));
+
+// Grouping. The panel groups its cards by repo, or into groups the person
+// makes (work that spans repos). How, and the groups, are Herdr's shared
+// state (`flow.groups`), so every copy agrees and it outlasts a restart:
+//   {by: "repo" | "manual", names: [group, ...], member: {dir: group}, closed: [key, ...]}
+// A card is keyed by its task folder, as the open card is.
+
+export const UNGROUPED = "ungrouped";
+
+/** Whatever shared() held, as a grouping state; anything malformed is dropped. */
+export function grouping(v) {
+  const names = Array.isArray(v?.names) ? [...new Set(v.names.filter((n) => typeof n === "string" && n.trim()))] : [];
+  const member = {};
+  for (const [dir, name] of Object.entries(v?.member ?? {})) if (names.includes(name)) member[dir] = name;
+  const closed = Array.isArray(v?.closed) ? v.closed.filter((k) => typeof k === "string") : [];
+  return { by: v?.by === "manual" ? "manual" : "repo", names, member, closed };
+}
+
+export const groupBy = (g, by) => ({ ...g, by: by === "manual" ? "manual" : "repo" });
+
+/** Opens a group if it's closed, closes it if it's open. */
+export const toggleGroup = (g, key) =>
+  ({ ...g, closed: g.closed.includes(key) ? g.closed.filter((k) => k !== key) : [...g.closed, key] });
+
+/** Puts a card in a group, making the group if it's new; null takes it out of any. */
+export function assign(g, dir, name) {
+  const member = { ...g.member };
+  const n = typeof name === "string" ? name.trim() : "";
+  if (!n) { delete member[dir]; return { ...g, member }; }
+  member[dir] = n;
+  return { ...g, names: g.names.includes(n) ? g.names : [...g.names, n], member };
+}
+
+/** Removes a group; its cards go back to ungrouped. */
+export function dropGroup(g, name) {
+  const member = Object.fromEntries(Object.entries(g.member).filter(([, n]) => n !== name));
+  const key = `group:${name}`, gone = new Set([key, boardKey(key)]);
+  return { ...g, names: g.names.filter((n) => n !== name), member, closed: g.closed.filter((k) => !gone.has(k)) };
+}
+
+/** A lane's key in `closed` on the stages board: folded apart from the panel's group. */
+export const boardKey = (key) => `board:${key}`;
+
+/** A repo's name: its folder's, with its parent's when two repos share one. */
+function repoNames(repos) {
+  const base = (r) => r.split("/").filter(Boolean).pop() ?? r;
+  const count = new Map();
+  for (const r of repos) count.set(base(r), (count.get(base(r)) ?? 0) + 1);
+  return new Map(repos.map((r) => [r, count.get(base(r)) > 1 ? r.split("/").filter(Boolean).slice(-2).join("/") : base(r)]));
+}
+
+/**
+ * The cards, in groups: [{key, name, kind, cards, waiting, closed}].
+ * By repo, a group per repo in the order its first card comes (so a gate
+ * waiting brings its repo up); a card whose repo isn't read yet waits in
+ * "reading". By hand, the person's groups in the order they made them, empty
+ * ones too (so they can be filled or removed), then the ungrouped cards.
+ */
+export function groups(list, g) {
+  const out = [];
+  const add = (key, name, kind, cards) =>
+    out.push({ key, name, kind, cards, waiting: cards.filter(gateOf).length, closed: g.closed.includes(key) });
+  if (g.by === "manual") {
+    for (const name of g.names) add(`group:${name}`, name, "group", list.filter((c) => g.member[c.dir] === name));
+    const rest = list.filter((c) => !g.names.includes(g.member[c.dir]));
+    if (rest.length) add(UNGROUPED, g.names.length ? "ungrouped" : "all tasks", "ungrouped", rest);
+    return out;
+  }
+  const order = [];
+  const by = new Map();
+  for (const c of list) {
+    const r = c.repo ?? "";
+    if (!by.has(r)) { by.set(r, []); order.push(r); }
+    by.get(r).push(c);
+  }
+  const names = repoNames(order.filter(Boolean));
+  for (const r of order) add(r ? `repo:${r}` : "repo:", r ? names.get(r) : "reading…", "repo", by.get(r));
+  return out;
+}
+
+// The board: the panel's cards across a whole Herdr tab, two ways. "stages"
+// lays them out by where they are (Shape | Gate 1 | Build | Gate 2 | Land),
+// in lanes by repo or by hand-made group; "next" by who has to act next. Each
+// opens as its own tab (tab.new {mod: "flow", props: {view}}), named so a
+// second ask finds the first instead of making another.
+
+export const BOARDS = { stages: "flow · stages", next: "flow · next up" };
+
+/** The board a copy was opened as, from its props; null for the panel. */
+export const boardOf = (props) => (Object.hasOwn(BOARDS, props?.view ?? "") ? props.view : null);
+
+export const STAGES = [
+  { name: "Shape", sub: "setup · research · plan · review" },
+  { name: "Gate 1", sub: "approve the plan", gate: 1 },
+  { name: "Build", sub: "implement · review · report" },
+  { name: "Gate 2", sub: "approve the merge", gate: 2 },
+  { name: "Land", sub: "wrap · done" },
+];
+const BUILD = new Set(["implementation", "code-review", "reporting"]);
+const LAND = new Set(["wind-down", "complete"]);
+
+/** Which of STAGES a card sits in: a waiting gate is a column of its own. */
+export function stageOf(c) {
+  const gate = gateOf(c), phase = phaseOf(c);
+  if (gate === 1) return 1;
+  if (gate === 2) return 3;
+  return BUILD.has(phase) ? 2 : LAND.has(phase) ? 4 : 0;
+}
+
+/**
+ * Who has the ball. "gate": a gate waits on you. "turn": its agent stopped
+ * (blocked, done or idle), so it's waiting on you too. "working": an agent is
+ * on it. "parked": active, but no session is. "done": complete.
+ */
+export function turnOf(c) {
+  if (phaseOf(c) === "complete") return "done";
+  if (gateOf(c)) return "gate";
+  if (!c.agents.length) return "parked";
+  return c.agents.some((a) => a.info?.status === "working") ? "working" : "turn";
+}
+
+/**
+ * Tasks completed in the last `days` days that aren't cards already: a done
+ * task has no card unless an agent is still labelled with it. Newest first.
+ */
+export function finished(snapshots, list, today, days = 7) {
+  const have = new Set(list.map((c) => c.dir));
+  const from = new Date(Date.parse(today) - days * 86400000).toISOString().slice(0, 10);
+  const out = [];
+  for (const s of snapshots ?? []) for (const t of s?.tasks ?? []) {
+    if (t.phase !== "complete" || have.has(t.dir) || (t.updated ?? "") < from) continue;
+    have.add(t.dir);
+    out.push({ dir: t.dir, task: t, labels: null, agents: [], repo: s.repo ?? s.root ?? null });
+  }
+  return out.sort((a, b) => b.task.updated.localeCompare(a.task.updated));
+}
+
+/** When a card's agents last changed state (ms), from their tabs; null if unknown. */
+export function since(c, tabs) {
+  const at = c.agents.map((a) => tabs.get(a.info?.tab)?.changed_at).filter((n) => typeof n === "number");
+  return at.length ? Math.max(...at) : null;
+}
+
+/** "4m", "2h", "3d": how long ago, roughly. */
+export function ago(ms, now) {
+  const m = Math.max(0, Math.floor((now - ms) / 60000));
+  return m < 1 ? "<1m" : m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+}
+
+/**
+ * The "next" board's columns: [{key, name, sub, sections: [{label, cards}]}].
+ * Waiting on you comes first, the longest wait at the top; `when` is since().
+ */
+export function columns(list, when = () => null) {
+  const by = (turn) => list.filter((c) => turnOf(c) === turn);
+  const oldest = (a, b) => (when(a) ?? Infinity) - (when(b) ?? Infinity);
+  return [
+    { key: "you", name: "Needs you", sub: "A gate is open, or an agent stopped for you.",
+      sections: [{ label: "at a gate", cards: by("gate").sort(oldest) }, { label: "your turn", cards: by("turn").sort(oldest) }] },
+    { key: "working", name: "Agent working", sub: "Nothing to do. The current phase breathes.", sections: [{ label: "", cards: by("working") }] },
+    { key: "parked", name: "Parked", sub: "Active, with no session on it.", sections: [{ label: "", cards: by("parked") }] },
+    { key: "done", name: "Done", sub: "Completed this week.", sections: [{ label: "", cards: by("done") }] },
+  ];
+}
+
+/** The tab a board already has in the shown space, by its name; null if none. */
+export function boardTab(spaces, view) {
+  const space = (spaces ?? []).find((s) => s.active);
+  return space?.tabs?.find((t) => t.name === BOARDS[view])?.id ?? null;
+}

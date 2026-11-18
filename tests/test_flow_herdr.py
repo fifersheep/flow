@@ -1,11 +1,11 @@
-import json, shutil, subprocess, sys, tempfile, unittest
+import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 from unittest import mock
 
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
 import flow_herdr  # noqa: E402
-from flow_herdr import KEYS, MOD_SRC, VERSION, clear, do, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
+from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -122,7 +122,7 @@ class TestInstall(HomeCase):
         run = Recorder(({}, 0))
         doc = install(self.env, which=ON_PATH, run=run)
         self.assertTrue(doc["ok"], doc)
-        self.assertEqual(sorted(f.name for f in flow_herdr.MOD_FILES()), ["main.js", "mod.json", "model.js"])
+        self.assertEqual(sorted(f.name for f in flow_herdr.MOD_FILES()), ["board.js", "main.js", "mod.json", "model.js"])
         for f in flow_herdr.MOD_FILES():
             self.assertEqual((self.dest / f.name).read_text(), f.read_text())
         self.assertEqual(self.flow_json()["root"], str(flow_herdr.PLUGIN))
@@ -201,6 +201,38 @@ class TestPanel(HomeCase):
         self.assertFalse(panel({}, which=ON_PATH, run=Recorder())["ok"])
 
 
+class TestBoard(HomeCase):
+    LS = {"spaces": [{"active": False, "tabs": [{"id": "x", "name": "flow · next up"}]},
+                     {"active": True, "tabs": [{"id": "a", "name": "1"}, {"id": "b", "name": "flow · stages"}]}]}
+
+    def test_a_new_board_is_a_tab_of_the_flow_mod(self):
+        install(self.env, which=NOT_ON_PATH)
+        run = Recorder((self.LS, 0), ({"tab": "c"}, 0))
+        self.assertTrue(board("next", self.env, which=ON_PATH, run=run)["ok"])
+        self.assertEqual(run.calls[1], ["herdr-app", "do", "tab.new", "--name", "flow · next up", "--mod", "flow",
+                                        "--props", '{"view": "next"}'])
+
+    def test_one_already_in_the_shown_space_is_shown_not_made_again(self):
+        install(self.env, which=NOT_ON_PATH)
+        run = Recorder((self.LS, 0), ({}, 0))
+        self.assertIn("showed", board("stages", self.env, which=ON_PATH, run=run)["message"])
+        self.assertEqual(run.calls[1], ["herdr-app", "do", "tab.select", "--id", "b"])
+
+    def test_tabs_it_cant_list_are_an_error_not_a_second_board(self):
+        install(self.env, which=NOT_ON_PATH)
+        for answer in (({}, 1), ("not json", 0)):
+            run = Recorder(answer)
+            doc = board("stages", self.env, which=ON_PATH, run=run)
+            self.assertFalse(doc["ok"])
+            self.assertIn("couldn't list Herdr's tabs", doc["message"])
+            self.assertEqual(len(run.calls), 1)  # no tab.new
+
+    def test_an_unknown_board_not_installed_or_outside_herdr(self):
+        self.assertFalse(board("frob", self.env, which=ON_PATH, run=Recorder())["ok"])
+        self.assertIn("/flow-herdr install", board("next", self.env, which=ON_PATH, run=Recorder())["message"])
+        self.assertFalse(board("next", {}, which=ON_PATH, run=Recorder())["ok"])
+
+
 class TestSessionStart(HomeCase):
     def snap(self, current):
         tasks = [task(folder="2026-11-11-add-widget")]
@@ -256,6 +288,16 @@ class TestSnapshots(unittest.TestCase):
         b = self.repo(self.dir / "ios")
         (self.dir / "notes").mkdir()
         self.assertEqual(self.roots(self.dir), [str(a), str(b)])
+
+    def test_a_worktree_is_of_its_main_checkout(self):
+        r = self.repo(self.dir / "app")
+        subprocess.run(["git", "-C", str(r), "commit", "-q", "--allow-empty", "-m", "x"], check=True,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+        wt = self.dir / "app-wt"
+        subprocess.run(["git", "-C", str(r), "worktree", "add", "-q", str(wt)], check=True)
+        self.assertEqual([s["repo"] for s in snapshots(wt)], [str(r)])
+        self.assertEqual([s["repo"] for s in snapshots(r)], [str(r)])
 
     def test_a_folder_with_no_repos_is_itself(self):
         (self.dir / "notes").mkdir()

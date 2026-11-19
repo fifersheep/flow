@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, events, finished, gateOf, groupBy, grouping, groups, labelled, progressOf, signature, since, stageOf, steps, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
+import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, endable, events, finished, gateOf, groupBy, grouping, groups, labelled, lingering, progressOf, resumeArgs, signature, since, stageOf, startArgs, startMessage, startRepos, steps, tabName, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -258,4 +258,48 @@ test("boardTab finds a board's tab by name in the shown space only", () => {
   assert.equal(boardTab(spaces, "next"), "b");
   assert.equal(boardTab(spaces, "stages"), null);
   assert.equal(boardTab([], "next"), null);
+});
+
+// Sessions from a board
+
+test("a session can be ended once it stops; asking first unless its task is complete", () => {
+  const done = on({ phase: "complete", isActive: false }, agent("idle"));
+  assert.equal(endable(done, done.agents[0]), "end");
+  assert.equal(endable(done, agent("done")), "end");
+  assert.equal(endable(on({}), agent("idle")), "confirm");
+  assert.equal(endable(on(gate(1)), agent("idle")), "confirm");
+  assert.equal(endable(on({}), agent("blocked")), "answer"); // /exit would land in its question
+  assert.equal(endable(on({}), agent("working")), null);
+  assert.equal(endable(on({}), { address: "t1" }), null); // no status from Herdr
+});
+
+test("the tray is the complete tasks whose session is still open", () => {
+  const list = [on({ phase: "complete" }, agent("idle")), on({ phase: "complete" }), on({}, agent("idle"))];
+  assert.deepEqual(lingering(list), [list[0]]);
+});
+
+test("a new task's first message is /flow and the text, with a picked mode", () => {
+  assert.equal(startMessage("  ENG-171:  export   audit log ", "suggest"), "/flow ENG-171: export audit log");
+  assert.equal(startMessage("export audit log", "lite"), "/flow export audit log (run this lite)");
+  assert.equal(startMessage("export audit log", "full"), "/flow export audit log (run this full)");
+  assert.equal(startMessage("   ", "lite"), null);
+});
+
+test("a new task's tab is named by its ticket, else its first words", () => {
+  assert.equal(tabName("ENG-171: export audit log"), "ENG-171");
+  assert.equal(tabName("Fix the flaky login test on CI"), "fix-the-flaky-login");
+  assert.equal(tabName("!!!"), "flow");
+});
+
+test("starting runs claude in the repo; resuming runs /flow in the task's own checkout", () => {
+  assert.deepEqual(startArgs("/r/app", "ENG-1: x", "suggest"), { name: "ENG-1", folder: "/r/app", argv: ["claude"], task: "/flow ENG-1: x" });
+  assert.equal(startArgs("/r/app", "", "suggest"), null);
+  assert.equal(startArgs(null, "x", "suggest"), null);
+  assert.deepEqual(resumeArgs(on({ slug: "sso", worktree: "/r/app-sso" })), { name: "sso", folder: "/r/app-sso", argv: ["claude"], task: "/flow" });
+  assert.equal(resumeArgs({ dir: "/x", task: null, labels: { task: "y" }, agents: [] }), null);
+});
+
+test("a new task can start in each repo read, a worktree's under its main checkout", () => {
+  assert.deepEqual(startRepos([{ root: "/w/app-x", repo: "/w/app" }, { root: "/w/app", repo: "/w/app" }, { root: "/w/api" }, null]),
+    [{ root: "/w/app", name: "app" }, { root: "/w/api", name: "api" }]);
 });

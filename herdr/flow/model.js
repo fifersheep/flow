@@ -343,3 +343,61 @@ export function boardTab(spaces, view) {
   const space = (spaces ?? []).find((s) => s.active);
   return space?.tabs?.find((t) => t.name === BOARDS[view])?.id ?? null;
 }
+
+// Sessions, from a board: starting a task, resuming a parked one, ending one.
+// Starting and resuming open a tab running claude with its first message
+// (tab.new); ending types /exit and closes the pane once claude has quit
+// (flow_herdr.py end). Nothing here answers anything for the person: after
+// the first message, the session is theirs.
+
+/**
+ * What ending an agent's session takes: "end" (its task is complete),
+ * "confirm" (it isn't: ask first), "answer" (it's asking the person
+ * something, so /exit would land in the question: answer it first), or null
+ * (it's working, or isn't an agent Herdr knows).
+ */
+export function endable(c, a) {
+  const s = a?.info?.status;
+  if (!s || s === "working") return null;
+  if (s === "blocked") return "answer";
+  return phaseOf(c) === "complete" ? "end" : "confirm";
+}
+
+/** Completed tasks whose session is still open: the finished-sessions tray. */
+export const lingering = (list) => list.filter((c) => phaseOf(c) === "complete" && c.agents.length > 0);
+
+export const MODES = ["suggest", "full", "lite"];
+
+/** A new task's first message: /flow and the text, saying the mode when one was picked. */
+export function startMessage(text, mode) {
+  const t = (text ?? "").trim().replace(/\s+/g, " ");
+  if (!t) return null;
+  return mode === "full" || mode === "lite" ? `/flow ${t} (run this ${mode})` : `/flow ${t}`;
+}
+
+/** A new task's tab name: its ticket ID when the text starts with one, else its first words. */
+export function tabName(text) {
+  const t = (text ?? "").trim();
+  const id = /^([A-Z][A-Z0-9]*-\d+)\b/.exec(t)?.[1];
+  if (id) return id;
+  return t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").slice(0, 4).join("-").slice(0, 28) || "flow";
+}
+
+/** tab.new's args for a new task in `folder`; null without text. */
+export function startArgs(folder, text, mode) {
+  const task = startMessage(text, mode);
+  return task && folder ? { name: tabName(text), folder, argv: ["claude"], task } : null;
+}
+
+/** tab.new's args to resume a task in its own checkout, where /flow finds it; null without one. */
+export function resumeArgs(c) {
+  const folder = c.task?.worktree;
+  return folder ? { name: slugOf(c), folder, argv: ["claude"], task: "/flow" } : null;
+}
+
+/** The repos a new task can start in: each snapshot's repo (a worktree's main checkout), named. */
+export function startRepos(snapshots) {
+  const roots = [...new Set((snapshots ?? []).map((s) => s?.repo ?? s?.root).filter(Boolean))];
+  const names = repoNames(roots);
+  return roots.map((root) => ({ root, name: names.get(root) }));
+}

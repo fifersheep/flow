@@ -10,7 +10,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Popover, TextView, Scrollbar } from "gpui-base";
 import { agents, appHome, exec, focused, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
 import { board, openBoard } from "./board.js";
-import { HEX, assign, boardOf, cards, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
+import { HEX, MODES, assign, boardOf, cards, endable, resumeArgs, startArgs, turnOf, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
 
 const TABS = ["progress", "plan", "decisions", "deviations"];
 const ROLE = { done: HEX.done, current: HEX.current, you: HEX.you };
@@ -31,6 +31,15 @@ const show = (open, tab = "progress") => setShared(VIEW, { open, tab });
 const GROUPS = "flow.groups";
 const groupState = () => grouping(shared(GROUPS));
 const regroup = (change) => setShared(GROUPS, change(groupState()));
+
+// The start bar's repo and mode (board.js), shared the same way, so both
+// boards start in the repo and mode last picked.
+const START = "flow.start";
+function startState() {
+  const v = shared(START);
+  return { repo: typeof v?.repo === "string" ? v.repo : null, mode: MODES.includes(v?.mode) ? v.mode : "suggest" };
+}
+const setStart = (change) => setShared(START, { ...startState(), ...change });
 
 // Notifications belong to the module, not to a copy: module code runs once and
 // is shared by every copy, so two open panels toast once. A copy that isn't on
@@ -68,6 +77,13 @@ export default class Flow extends View {
     this.sig = null;
     this.error = null;
     this.menu = null; //          the card whose group menu is open (this copy's)
+    this.ending = new Set(); //   terminals sent /exit, until flow_herdr.py end returns
+    this.confirming = null; //    the terminal whose "End session…" is asking first
+    this.repos = []; //           where a new task can start: the repos this copy reads
+    this.repoMenu = false; //     the start bar's repo menu, open
+    this.trayOpen = false; //     the finished-sessions tray, open
+    this.startText = InputState.new({ placeholder: "Start a task: describe it, a ticket ID first if it has one" });
+    this.startText.on("submit", (_e, cx) => this.startTask(cx));
     this.newGroup = InputState.new({ placeholder: "New group" });
     this.newGroup.on("submit", (_e, cx) => {
       const name = this.newGroup.value().trim(), dir = this.menu;
@@ -127,21 +143,23 @@ export default class Flow extends View {
     const all = agents();
     const status = new Map(all.map((a) => [a.address, a]));
     const silent = unreporting(terminals(), all);
-    const want = wanted(live, here());
+    const at = here();
+    const want = wanted(live, at);
     for (const dir of want) if (!this.rootOf.has(dir)) this.load(dir, cx);
     const sig = signature(live);
     if (sig !== this.sig) { // a label moved: those repos changed
       if (this.sig !== null) for (const a of live) this.load(a.dir, cx);
       this.sig = sig;
     }
-    const roots = new Set(want.flatMap((d) => this.rootOf.get(d) ?? []));
+    // where you are first: a board's start bar defaults to the first repo
+    const roots = new Set([...(this.rootOf.get(at) ?? []), ...want.flatMap((d) => this.rootOf.get(d) ?? [])]);
     const list = cards([...roots].map((r) => this.snaps.get(r)), live.map((a) => ({ ...a, info: status.get(a.address) })));
     const waiting = list.filter(gateOf).length;
     const g = groupState();
     const index = new Map(list.map((c, i) => [c.dir, i]));
     if (this.board) {
       const snaps = [...roots].map((r) => this.snaps.get(r));
-      return board(this, this.board, { list, snaps, g, t, waiting, silent, show, regroup, opened: view().open });
+      return board(this, this.board, { list, snaps, g, t, waiting, silent, show, regroup, opened: view().open, start: startState(), setStart });
     }
 
     return v_flex().id("flow").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
@@ -283,13 +301,74 @@ export default class Flow extends View {
   }
 
   /** The Claude Code sessions on the task: click one to go there. */
+  /**
+   * The Claude Code sessions on the task: click one to go there. Each can be
+   * ended once it has stopped (model.js endable); a parked task can be resumed.
+   */
   sessions(c, i, t) {
-    if (!c.agents.length) return div().text_size(11).text_color(t.dim).child("no session on it");
-    return v_flex().gap(2).children(c.agents.map((a, k) => h_flex().id(`agent-${i}-${k}`).gap(6).items_center().rounded(5).px(4).mx(-4).py(1)
-      .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => run("agent.focus", { terminal: a.address }))
-      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
-        .child(a.info ? `${a.info.space_name} / ${a.info.tab_name}` : a.address))
-      .child(div().flex_none().text_size(11).text_color(t.dim).child(a.info?.status ?? ""))));
+    if (!c.agents.length) {
+      const resume = turnOf(c) === "parked" && Boolean(resumeArgs(c));
+      return h_flex().gap(6).items_center()
+        .child(div().flex_1().text_size(11).text_color(t.dim).child("no session on it"))
+        .when(resume, (e) => e.child(this.button(`resume-${i}`, "Resume in a new tab", t, () => this.resume(c))));
+    }
+    return v_flex().gap(2).children(c.agents.map((a, k) => {
+      const can = endable(c, a), ending = this.ending.has(a.address), asking = this.confirming === a.address;
+      const row = h_flex().id(`agent-${i}-${k}`).gap(6).items_center().rounded(5).px(4).mx(-4).py(1)
+        .cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => run("agent.focus", { terminal: a.address }))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted)
+          .child(a.info ? `${a.info.space_name} / ${a.info.tab_name}` : a.address))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(ending ? "sent /exit…" : can === "answer" ? "answer it first" : a.info?.status ?? ""))
+        .when(!ending && !asking && (can === "end" || can === "confirm"), (e) => e.child(this.button(`end-${i}-${k}`,
+          can === "end" ? "End session" : "End session…", t, (cx) => {
+            cx.stop_propagation(); // the row behind goes to the agent
+            if (can === "end") this.endSession(a.address, cx);
+            else { this.confirming = a.address; cx.notify(); }
+          })));
+      if (!asking) return row;
+      return v_flex().gap(6).child(row)
+        .child(v_flex().gap(6).p(8).rounded(6).bg(t.hover)
+          .child(div().text_size(11).text_color(t.foreground)
+            .child(`End this session? ${slugOf(c)} stays at ${short(phaseOf(c))}, and Resume can start a new one on it.`))
+          .child(h_flex().gap(6)
+            .child(this.button(`end-yes-${i}-${k}`, "End session", t, (cx) => this.endSession(a.address, cx)))
+            .child(this.button(`end-no-${i}-${k}`, "Cancel", t, (cx) => { this.confirming = null; cx.notify(); }))));
+    }));
+  }
+
+  /** Opens a tab running claude with /flow and the start bar's text, in the chosen repo. */
+  startTask(cx) {
+    const s = startState();
+    const repo = this.repos.find((r) => r.root === s.repo) ?? this.repos[0];
+    const args = startArgs(repo?.root, this.startText.value(), s.mode);
+    if (!args) return;
+    run("tab.new", args);
+    this.startText.set_value("");
+    cx.notify();
+  }
+
+  /** A new session on a parked task, in its own checkout, where /flow finds it. */
+  resume(c) {
+    const args = resumeArgs(c);
+    if (args) run("tab.new", args);
+  }
+
+  /** Types /exit into the session and closes its pane once claude quits (flow_herdr.py end). */
+  endSession(address, cx) {
+    if (!this.plugin || this.ending.has(address)) return;
+    this.ending.add(address);
+    this.confirming = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let doc;
+      try {
+        const r = await exec("python3", [`${this.plugin}/hooks/flow_herdr.py`, "end", address], { timeout: 45000 });
+        doc = JSON.parse(r.stdout);
+      } catch (e) { doc = { ok: false, message: String(e?.message ?? e) }; }
+      this.ending.delete(address);
+      if (!doc.ok) notify({ title: "The session wasn't ended", body: doc.message, level: "warning" });
+      cx.notify();
+    });
   }
 
   detail(c, i, t) {

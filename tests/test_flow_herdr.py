@@ -5,7 +5,7 @@ from unittest import mock
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
 import flow_herdr  # noqa: E402
-from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
+from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, end, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -231,6 +231,53 @@ class TestBoard(HomeCase):
         self.assertFalse(board("frob", self.env, which=ON_PATH, run=Recorder())["ok"])
         self.assertIn("/flow-herdr install", board("next", self.env, which=ON_PATH, run=Recorder())["message"])
         self.assertFalse(board("next", {}, which=ON_PATH, run=Recorder())["ok"])
+
+
+class TestEnd(unittest.TestCase):
+    """`end`: /exit typed only into a session that's stopped, its pane closed once claude quits."""
+    def get(self, state, live="live"):
+        return ({"state": live, "status": {"state": state} if state else None}, 0)
+
+    def test_an_idle_session_gets_exit_then_its_pane_closes(self):
+        run = Recorder(self.get("idle"), ({}, 0), self.get("idle"), self.get(None), (LS, 0), ({}, 0))
+        doc = end("t3", run=run, sleep=lambda _: None)
+        self.assertTrue(doc["ok"])
+        self.assertEqual(run.calls[1], ["hc", "send", "t3", "/exit"])
+        self.assertEqual(run.calls[-1], ["herdr-app", "do", "pane.close", "--pane", "p3"])
+
+    def test_exit_is_typed_as_a_person_would_not_as_a_note_from_this_terminal(self):
+        seen = {}
+        def run(argv, **kw):
+            if argv[:2] == ["hc", "send"]:
+                seen.update(kw.get("env") or {"unset": True})
+            out = {"state": "live", "status": None if seen else {"state": "idle"}} if argv[:2] == ["hc", "get"] else LS
+            return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+        with mock.patch.dict(os.environ, {"HC_TERMINAL_ID": "t3", "HC_TERMINAL_SOCKET": "/s", "PATH": "/bin"}):
+            self.assertTrue(end("t9", run=run, sleep=lambda _: None)["ok"])
+        self.assertNotIn("HC_TERMINAL_ID", seen)
+        self.assertNotIn("HC_TERMINAL_SOCKET", seen)
+        self.assertEqual(seen.get("PATH"), "/bin")
+
+    def test_working_or_asking_is_left_alone(self):
+        for state in ("working", "blocked"):
+            run = Recorder(self.get(state))
+            self.assertFalse(end("t3", run=run)["ok"])
+            self.assertEqual(len(run.calls), 1)  # nothing typed
+
+    def test_one_that_doesnt_quit_is_left_open(self):
+        run = Recorder(self.get("done"), ({}, 0), *[self.get("idle")] * 5)
+        doc = end("t3", run=run, sleep=lambda _: None, wait=2)
+        self.assertFalse(doc["ok"])
+        self.assertNotIn("pane.close", sum(run.calls, []))
+
+    def test_a_shell_with_no_agent_just_closes(self):
+        run = Recorder(self.get(None), (LS, 0), ({}, 0))
+        self.assertTrue(end("t3", run=run)["ok"])
+        self.assertEqual([c[:3] for c in run.calls], [["hc", "get", "t3"], ["herdr-app", "ls"], ["herdr-app", "do", "pane.close"]])
+
+    def test_a_refused_send_or_a_gone_terminal(self):
+        self.assertFalse(end("t3", run=Recorder(self.get("idle"), ({}, 1)), sleep=lambda _: None)["ok"])
+        self.assertFalse(end("t9", run=Recorder(({}, 1)))["ok"])
 
 
 class TestSessionStart(HomeCase):

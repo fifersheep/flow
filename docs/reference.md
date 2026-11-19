@@ -219,9 +219,32 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   **Done**. Its cards are the panel's cards.
 
   On both, tasks completed in the last seven days show as one line each
-  under Land or in Done. Click a chip or a card for the whole card at the
-  side, with its tabs and **Go to agent**. Like the panel, a board shows and
-  goes to the agent; the gates are answered in the session.
+  under Land or in Done. Click a chip or a card for the whole card, which
+  opens over the board's right side without narrowing it, with its tabs and
+  **Go to agent**. Like the panel, a board shows and goes to the agent; the
+  gates are answered in the session.
+
+- **Sessions from a board.** Along the bottom of both boards:
+  - **The start bar** starts a task: type it (a ticket ID first if it has
+    one), pick the repo (the board's own space's repos come first) and
+    **suggest | full | lite**, then **Start** or Enter. It opens a tab
+    running `claude "/flow <your text>"`, adding "(run this lite)" or
+    "(run this full)" when you picked one, so setup doesn't ask. From then
+    on the session is yours: when it asks something, the task shows under
+    Needs you and **Go to agent** takes you to type there. The repo and
+    mode are remembered in Herdr's shared state (`flow.start`).
+  - **The tray** (✓ N finished sessions) lists complete tasks whose
+    session is still open, with **Go**, **End** and **End all**.
+
+  On a card (the panel's too), a stopped session has **End session**:
+  one click when its task is complete, **End session…** asking first when
+  it isn't. Ending types `/exit` into Claude Code, waits for it to quit,
+  then closes its pane (`flow_herdr.py end`). It never touches the task:
+  workflow.md, the branch and the worktree stay, and an unfinished task
+  moves to Parked. A session that's working isn't offered it, and one
+  waiting on an answer from you says "answer it first", since `/exit`
+  would land in the question. A parked task has **Resume in a new tab**:
+  `claude "/flow"` in the task's own checkout, where `/flow` finds it.
 
   While a copy of the panel or a board is running (open in any tab, or opened once and
   hidden), it posts a Herdr notification when a gate opens, a phase moves

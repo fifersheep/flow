@@ -89,8 +89,8 @@ AppleScript can't make, flow uses iTerm's Python API, and `/flow-term setup`
 checks what that needs and tells you how to fix anything missing. In the
 [Herdr](https://herdr.dev) app, flow splits Herdr's pane instead, and
 `/flow-herdr install` adds a native Herdr panel of every flow task across
-your sessions, two board tabs (by stage, and by who's next), and
-notifications when a gate opens. See
+your sessions, two board tabs (by stage, and by who's next) that also
+start, resume and end sessions, and notifications when a gate opens. See
 [In Herdr](docs/reference.md#in-herdr).
 
 ![/flow-term setup: a checklist confirming iTerm, its Python API, the helper package and a connection](docs/images/setup.png)

@@ -57,6 +57,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parent.parent
@@ -257,6 +258,47 @@ def board(view, env=os.environ, which=shutil.which, run=subprocess.run):
     return {"ok": True, "message": f"opened the {name} board in a tab"}
 
 
+def agent_state(terminal, run=subprocess.run):
+    """(live, state) from `hc get`: whether the terminal is there, and its
+    program's reported state (working, idle, done, blocked) or None."""
+    r = run(["hc", "get", terminal, "--json"], capture_output=True, text=True, timeout=TIMEOUT)
+    if r.returncode != 0:
+        return False, None
+    doc = json.loads(r.stdout or "{}")
+    return doc.get("state") == "live", (doc.get("status") or {}).get("state")
+
+
+def end(terminal, run=subprocess.run, sleep=time.sleep, wait=20.0):
+    """End a Claude Code session as a person would: type /exit, wait for
+    claude to quit, then close its pane. Never while it's working or asking
+    something: /exit would interrupt a turn or land in the question."""
+    live, state = agent_state(terminal, run)
+    if not live:
+        return {"ok": False, "message": f"no live terminal {terminal}"}
+    if state in ("working", "blocked"):
+        why = "working" if state == "working" else "waiting on an answer from you"
+        return {"ok": False, "message": f"{terminal} is {why}: left it running"}
+    if state is not None:
+        # sent as a person would type it: from inside a terminal (a session
+        # running this), hc wraps a message as <hc from="tN">, a note
+        # between agents, and claude would read /exit as a message
+        quiet = {k: v for k, v in os.environ.items() if k not in ("HC_TERMINAL_ID", "HC_TERMINAL_SOCKET")}
+        r = run(["hc", "send", terminal, "/exit"], capture_output=True, text=True, timeout=60, env=quiet)
+        if r.returncode != 0:
+            return {"ok": False, "message": (r.stderr or r.stdout).strip() or f"couldn't type /exit into {terminal}"}
+        for _ in range(int(wait / 0.5)):
+            live, state = agent_state(terminal, run)
+            if not live or state is None:
+                break
+            sleep(0.5)
+        else:
+            return {"ok": False, "message": f"sent /exit to {terminal}, but it hasn't quit: left it open"}
+    pane = pane_of(terminal, run=run) if live else None
+    if pane:
+        do("pane.close", run=run, pane=pane)
+    return {"ok": True, "message": f"ended the session in {terminal}"}
+
+
 def session_start(payload, env=os.environ, which=shutil.which, run=subprocess.run):
     """Refresh an installed panel; label the session with the task it's on."""
     sync(env)
@@ -361,6 +403,13 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
+    if argv[:1] == ["end"] and len(argv) == 2:
+        try:
+            doc = end(argv[1])
+        except Exception as exc:
+            doc = {"ok": False, "message": str(exc)}
+        print(json.dumps(doc))
+        return 0
     if argv[:1] in (["install"], ["remove"], ["panel"]):
         try:
             doc = {"install": install, "remove": remove, "panel": panel}[argv[0]]()
@@ -368,7 +417,7 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] | snapshots DIR", file=sys.stderr)
+    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] | end TERMINAL | snapshots DIR", file=sys.stderr)
     return 2
 
 

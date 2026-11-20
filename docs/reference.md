@@ -201,6 +201,13 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   board's header opens the other. Asking again shows the tab already in the
   shown space rather than making another.
 
+  A board reads the folder you ran `/flow-herdr board` or `next` from (its
+  header shows it, "in ~/dev"): that repo, or, in a folder of repos such as
+  `~/dev`, every repo directly under it. A board tab has no terminal of its
+  own, so before you've run either it reads the space's folder. The folder
+  is kept in `~/.cache/flow/herdr-board.json`, shared by both boards, and
+  moves each time you run one from somewhere else.
+
   *Stages* has a lane per repo, or per group you made (the same **repo |
   manual** switch as the panel), across **Shape** (setup to plan review),
   **Gate 1**, **Build** (implement to report), **Gate 2** and **Land**
@@ -226,7 +233,9 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
 
 - **Sessions from a board.** Along the bottom of both boards:
   - **The start bar** starts a task: type it (a ticket ID first if it has
-    one), pick the repo (the board's own space's repos come first) and
+    one), pick the repo (any repo in the board's folder, tasks or not;
+    those with tasks come first, and a long list has a filter: Enter takes
+    the first match) and
     **suggest | full | lite**, then **Start** or Enter. It opens a tab
     running `claude "/flow <your text>"`, adding "(run this lite)" or
     "(run this full)" when you picked one, so setup doesn't ask. From then

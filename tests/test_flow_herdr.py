@@ -5,7 +5,7 @@ from unittest import mock
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
 import flow_herdr  # noqa: E402
-from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, end, in_herdr, install, label_task, labels_for, panel, remove, session_start, snapshots, split, sync  # noqa: E402
+from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, end, in_herdr, install, label_task, labels_for, panel, remove, repos, session_start, snapshots, split, sync  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -227,6 +227,20 @@ class TestBoard(HomeCase):
             self.assertIn("couldn't list Herdr's tabs", doc["message"])
             self.assertEqual(len(run.calls), 1)  # no tab.new
 
+    def test_it_records_the_folder_it_was_opened_from(self):
+        install(self.env, which=NOT_ON_PATH)
+        env = {**self.env, "HOME": str(self.home)}
+        board("stages", env, which=ON_PATH, run=Recorder((self.LS, 0), ({}, 0)), folder=str(self.home))
+        f = flow_herdr.board_file(env)
+        self.assertEqual(f, self.home / ".cache" / "flow" / "herdr-board.json")
+        self.assertEqual(json.loads(f.read_text()), {"folder": str(self.home.resolve())})
+
+    def test_without_a_folder_it_records_none(self):
+        install(self.env, which=NOT_ON_PATH)
+        env = {**self.env, "HOME": str(self.home)}
+        board("stages", env, which=ON_PATH, run=Recorder((self.LS, 0), ({}, 0)))
+        self.assertFalse(flow_herdr.board_file(env).exists())
+
     def test_an_unknown_board_not_installed_or_outside_herdr(self):
         self.assertFalse(board("frob", self.env, which=ON_PATH, run=Recorder())["ok"])
         self.assertIn("/flow-herdr install", board("next", self.env, which=ON_PATH, run=Recorder())["message"])
@@ -354,6 +368,26 @@ class TestSnapshots(unittest.TestCase):
         for i in range(flow_herdr.BELOW + 2):
             self.repo(self.dir / f"r{i:02}")
         self.assertEqual(len(self.roots(self.dir)), flow_herdr.BELOW)
+
+    def test_a_boards_repos_are_every_repo_below_tasks_or_not(self):
+        a = self.repo(self.dir / "android")
+        w = self.repo(self.dir / "web", tasks=False)
+        (self.dir / "notes").mkdir()
+        (self.dir / ".hidden").mkdir()
+        self.assertEqual(repos(self.dir), [str(a), str(w)])
+
+    def test_a_boards_repos_in_a_repo_are_that_repo(self):
+        r = self.repo(self.dir / "app", tasks=False)
+        (r / "src").mkdir()
+        self.assertEqual(repos(r / "src"), [str(r)])
+
+    def test_a_worktree_below_offers_its_repo_once(self):
+        r = self.repo(self.dir / "app")
+        subprocess.run(["git", "-C", str(r), "commit", "-q", "--allow-empty", "-m", "x"], check=True,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+        subprocess.run(["git", "-C", str(r), "worktree", "add", "-q", str(self.dir / "app-wt")], check=True)
+        self.assertEqual(repos(self.dir), [str(r)])
 
 
 class TestScript(unittest.TestCase):

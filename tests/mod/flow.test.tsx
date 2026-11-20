@@ -464,7 +464,7 @@ describe('/flow-herdr', () => {
     const asks = ['', 'install', 'remove', 'open', 'board', 'next', 'frob', 'constructor']
     const said: string[] = []
     for (const args of asks) said.push((await $.command.run({ command: 'flow-herdr', ...RUN, args })).text ?? '')
-    expect(seen.ran).toEqual([['panel'], ['install'], ['remove'], ['panel'], ['board', 'stages'], ['board', 'next']])
+    expect(seen.ran).toEqual([['panel'], ['install'], ['remove'], ['panel'], ['board', 'stages', '--cwd', '/repo'], ['board', 'next', '--cwd', '/repo']])
     expect(said).toEqual(['▸ did panel', '▸ did install', '⛔ no flow panel installed', '▸ did panel', '▸ did board', '▸ did board',
       '⛔ flow-herdr: no "frob" — install, remove, board, next, or nothing to open the panel',
       '⛔ flow-herdr: no "constructor" — install, remove, board, next, or nothing to open the panel'])

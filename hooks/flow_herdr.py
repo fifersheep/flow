@@ -6,6 +6,7 @@
     python3 flow_herdr.py clear                      the SessionEnd hook
     python3 flow_herdr.py install | remove | panel   /flow-herdr runs these
     python3 flow_herdr.py snapshots DIR              the Herdr panel runs this
+    python3 flow_herdr.py repos DIR                  the board's start bar runs this
 
 Herdr runs every terminal in herdr-core (`hc`) and tells the program inside
 which one it is in HC_TERMINAL_ID. Two things use that:
@@ -48,6 +49,11 @@ which one it is in HC_TERMINAL_ID. Two things use that:
   `snapshots DIR` is what the panel reads: flow_status.py's snapshot of the
   repo DIR is in, or, when DIR is in none (a folder holding several repos),
   of each repo directly under it that has flow tasks.
+- **The board.** `board` opens a board tab, and records the folder it was
+  opened from (the session's) in ~/.cache/flow/herdr-board.json. A board tab
+  has no terminal of its own, so that folder is where it reads tasks from, and
+  `repos DIR` lists where its start bar can start one: DIR's repo, or every
+  repo directly under DIR, tasks or not.
 
 Outside Herdr none of this runs. Like everything the mod does, it is display:
 a failed label costs a stale panel, never a session or a gate.
@@ -69,6 +75,7 @@ MOD_FILES = lambda: sorted(f for f in MOD_SRC.iterdir() if f.is_file() and f.suf
 KEYS = ("flow.task", "flow.phase", "flow.mode", "flow.progress", "flow.gate", "flow.dir")
 VERSION = "flow.version"  # on from the session's start to its end, task or not
 BELOW = 12  # repos read under a folder that isn't one
+REPOS = 200  # repos a board's start bar offers under a folder that isn't one
 # the board's two views, each a tab of its own named so it can be found again
 # (herdr/flow/model.js BOARDS)
 BOARDS = {"stages": "flow · stages", "next": "flow · next up"}
@@ -232,14 +239,24 @@ def panel(env=os.environ, which=shutil.which, run=subprocess.run):
     return {"ok": True, "message": "opened the flow panel beside this session"}
 
 
-def board(view, env=os.environ, which=shutil.which, run=subprocess.run):
-    """Show a board's tab in the shown space, making it when there isn't one."""
+def board_file(env=os.environ):
+    """Where `board` records the folder the boards read (herdr/flow/main.js BOARD_FILE)."""
+    return Path(env.get("HOME") or Path.home()) / ".cache" / "flow" / "herdr-board.json"
+
+
+def board(view, env=os.environ, which=shutil.which, run=subprocess.run, folder=None):
+    """Show a board's tab in the shown space, making it when there isn't one.
+    With a folder, the boards read that folder's repos from now on."""
     if view not in BOARDS:
         return {"ok": False, "message": f"no \"{view}\" board: stages or next"}
     if not in_herdr(env, which):
         return {"ok": False, "message": "this session isn't in a Herdr terminal"}
     if installed(env) is None:
         return {"ok": False, "message": "the flow panel isn't installed: run /flow-herdr install"}
+    if folder:
+        f = board_file(env)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        put(f, (json.dumps({"folder": str(Path(folder).resolve())}) + "\n").encode())
     name = BOARDS[view]
     r = run(["herdr-app", "ls"], capture_output=True, text=True, timeout=TIMEOUT)
     try:
@@ -317,17 +334,45 @@ def snapshots(cwd):
     that holds repos rather than sitting in one, those of the repos under it
     that have flow tasks (at most BELOW of them)."""
     from flow_common import artifacts_dir
+    here = Path(cwd).resolve()
+    if in_a_repo(here):
+        return [snapshot(here)]
+    below = [d for d in roots_below(here) if (d / artifacts_dir(d)).is_dir()]
+    return [snapshot(d) for d in below[:BELOW]] or [snapshot(here)]
+
+
+def is_root(d):
+    return (d / ".git").exists() or (d / ".flow.md").is_file()
+
+
+def in_a_repo(here):
+    from flow_status import root_of
+    return root_of(here) != here or is_root(here)
+
+
+def roots_below(here):
+    """The checkouts directly under a folder, by name."""
+    try:
+        return sorted(d for d in here.iterdir() if d.is_dir() and not d.name.startswith(".") and is_root(d))
+    except OSError:
+        return []
+
+
+def repos(cwd):
+    """Where a board's start bar can start a task: the repo cwd is in, or, in a
+    folder that holds repos, every repo directly under it, tasks or not (at
+    most REPOS). Each is its main checkout (repo_of), so a worktree under the
+    folder offers the repo it's of, once."""
     from flow_status import root_of
     here = Path(cwd).resolve()
-    is_root = lambda d: (d / ".git").exists() or (d / ".flow.md").is_file()
-    if root_of(here) != here or is_root(here):
-        return [snapshot(here)]
-    try:
-        below = sorted(d for d in here.iterdir() if d.is_dir() and not d.name.startswith(".")
-                       and is_root(d) and (d / artifacts_dir(d)).is_dir())
-    except OSError:
-        below = []
-    return [snapshot(d) for d in below[:BELOW]] or [snapshot(here)]
+    if in_a_repo(here):
+        return [repo_of(root_of(here))]
+    out = []
+    for d in roots_below(here):
+        r = str(d) if (d / ".git").is_dir() or not (d / ".git").exists() else repo_of(d)
+        if r not in out:
+            out.append(r)
+    return out[:REPOS]
 
 
 def repo_of(root):
@@ -396,13 +441,24 @@ def main(argv):
         except Exception:
             print("[]")
         return 0
-    if argv[:1] == ["board"] and len(argv) in (1, 2):
+    if argv[:1] == ["repos"] and len(argv) == 2:
         try:
-            doc = board(argv[1] if len(argv) == 2 else "stages")
-        except Exception as exc:
-            doc = {"ok": False, "message": str(exc)}
-        print(json.dumps(doc))
+            print(json.dumps(repos(argv[1])))
+        except Exception:
+            print("[]")
         return 0
+    if argv[:1] == ["board"]:
+        rest, folder = argv[1:], None
+        if "--cwd" in rest[:-1]:
+            i = rest.index("--cwd")
+            folder, rest = rest[i + 1], rest[:i] + rest[i + 2:]
+        if len(rest) <= 1:
+            try:
+                doc = board(rest[0] if rest else "stages", folder=folder)
+            except Exception as exc:
+                doc = {"ok": False, "message": str(exc)}
+            print(json.dumps(doc))
+            return 0
     if argv[:1] == ["end"] and len(argv) == 2:
         try:
             doc = end(argv[1])
@@ -417,7 +473,7 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] | end TERMINAL | snapshots DIR", file=sys.stderr)
+    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] [--cwd DIR] | end TERMINAL | snapshots DIR | repos DIR", file=sys.stderr)
     return 2
 
 

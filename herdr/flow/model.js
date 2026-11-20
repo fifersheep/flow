@@ -395,9 +395,19 @@ export function resumeArgs(c) {
   return folder ? { name: slugOf(c), folder, argv: ["claude"], task: "/flow" } : null;
 }
 
-/** The repos a new task can start in: each snapshot's repo (a worktree's main checkout), named. */
-export function startRepos(snapshots) {
-  const roots = [...new Set((snapshots ?? []).map((s) => s?.repo ?? s?.root).filter(Boolean))];
+/**
+ * The repos a new task can start in: each snapshot's repo (a worktree's main
+ * checkout) first, where the work is, then the rest of `below`, the repos in
+ * the board's folder (flow_herdr.py repos); named.
+ */
+export function startRepos(snapshots, below = []) {
+  const roots = [...new Set([...(snapshots ?? []).map((s) => s?.repo ?? s?.root), ...(below ?? [])].filter(Boolean))];
   const names = repoNames(roots);
   return roots.map((root) => ({ root, name: names.get(root) }));
+}
+
+/** The repos the start bar's menu lists: by name, those whose name has `text` in it. */
+export function pickable(repos, text) {
+  const q = (text ?? "").trim().toLowerCase();
+  return [...(repos ?? [])].filter((r) => !q || r.name.toLowerCase().includes(q)).sort((x, y) => x.name.localeCompare(y.name));
 }

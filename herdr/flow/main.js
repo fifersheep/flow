@@ -8,7 +8,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Popover, TextView, Scrollbar } from "gpui-base";
-import { agents, appHome, exec, focused, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
+import { agents, appHome, exec, focused, home, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
 import { board, openBoard } from "./board.js";
 import { HEX, MODES, assign, boardOf, cards, endable, resumeArgs, startArgs, turnOf, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
 
@@ -58,6 +58,11 @@ function listen() {
   }
 }
 
+// The folder a board reads, recorded by `/flow-herdr board` (flow_herdr.py
+// board_file): the session's it was opened from. A board's tab has no
+// terminal, so without it a board reads the space's folder.
+const BOARD_FILE = () => `${home()}/.cache/flow/herdr-board.json`;
+
 /** Where you are: the focused terminal's folder, else the tab's first, else the space's. */
 function here() {
   const f = focused();
@@ -79,8 +84,14 @@ export default class Flow extends View {
     this.menu = null; //          the card whose group menu is open (this copy's)
     this.ending = new Set(); //   terminals sent /exit, until flow_herdr.py end returns
     this.confirming = null; //    the terminal whose "End session…" is asking first
-    this.repos = []; //           where a new task can start: the repos this copy reads
+    this.folder = null; //        a board's folder (BOARD_FILE), when one was recorded
+    this.below = new Map(); //    folder -> the repos in or under it (flow_herdr.py repos)
+    this.repos = []; //           where a new task can start: the repos this copy reads, and the folder's
     this.repoMenu = false; //     the start bar's repo menu, open
+    this.repoFilter = InputState.new({ placeholder: "Filter repos" });
+    this.repoFilter.on("change", (_e, cx) => cx.notify());
+    this.repoFilter.on("submit", (_e, cx) => this.repoPick?.(cx));
+    this.repoPick = null; //      what Enter in the filter picks (board.js)
     this.trayOpen = false; //     the finished-sessions tray, open
     this.startText = InputState.new({ placeholder: "Start a task: describe it, a ticket ID first if it has one" });
     this.startText.on("submit", (_e, cx) => this.startTask(cx));
@@ -103,7 +114,15 @@ export default class Flow extends View {
     // reads labels and compares; it draws nothing, so it costs no redraw
     cx.timer.every(1000, () => listen());
     // a task folder appearing changes no label: look again now and then
-    cx.timer.every(30000, (cx) => { for (const dir of [...this.rootOf.keys()]) this.load(dir, cx); });
+    cx.timer.every(30000, (cx) => {
+      for (const dir of [...this.rootOf.keys()]) this.load(dir, cx);
+      for (const dir of [...this.below.keys()]) this.loadRepos(dir, cx);
+    });
+    // a board follows the folder /flow-herdr board was last run from
+    if (this.board) {
+      this.readFolder(cx);
+      cx.timer.every(2000, (cx) => this.readFolder(cx));
+    }
     // a board says how long each task has waited on you: keep that current
     if (this.board) cx.timer.every(60000, (cx) => cx.notify());
   }
@@ -120,6 +139,29 @@ export default class Flow extends View {
         for (const s of found) { this.snaps.set(s.root, s); this.watch(s, cx); }
       } catch { this.rootOf.set(dir, []); }
       finally { this.loading.delete(dir); cx.notify(); }
+    });
+  }
+
+  /** A board's folder, from BOARD_FILE; redraws only when it moved. */
+  readFolder(cx) {
+    cx.spawn(async (cx) => {
+      let folder = null;
+      try { folder = JSON.parse((await readTextFile(BOARD_FILE())) ?? "null")?.folder ?? null; } catch { folder = null; }
+      if (typeof folder !== "string" || !folder) folder = null;
+      if (folder !== this.folder) { this.folder = folder; cx.notify(); }
+    });
+  }
+
+  /** The repos a board's start bar offers for a folder: its repo, or every one under it. */
+  loadRepos(dir, cx) {
+    if (!this.plugin) return;
+    if (!this.below.has(dir)) this.below.set(dir, []);
+    cx.spawn(async (cx) => {
+      try {
+        const r = await exec("python3", [`${this.plugin}/hooks/flow_herdr.py`, "repos", dir], { timeout: 15000 });
+        const found = JSON.parse(r.stdout).filter((x) => typeof x === "string");
+        if (found.join("\n") !== (this.below.get(dir) ?? []).join("\n")) { this.below.set(dir, found); cx.notify(); }
+      } catch { /* keep what it had */ }
     });
   }
 
@@ -143,7 +185,8 @@ export default class Flow extends View {
     const all = agents();
     const status = new Map(all.map((a) => [a.address, a]));
     const silent = unreporting(terminals(), all);
-    const at = here();
+    // a board reads the folder it was opened from; the panel, where you are
+    const at = (this.board && this.folder) || here();
     const want = wanted(live, at);
     for (const dir of want) if (!this.rootOf.has(dir)) this.load(dir, cx);
     const sig = signature(live);
@@ -159,7 +202,8 @@ export default class Flow extends View {
     const index = new Map(list.map((c, i) => [c.dir, i]));
     if (this.board) {
       const snaps = [...roots].map((r) => this.snaps.get(r));
-      return board(this, this.board, { list, snaps, g, t, waiting, silent, show, regroup, opened: view().open, start: startState(), setStart });
+      if (at && !this.below.has(at)) this.loadRepos(at, cx);
+      return board(this, this.board, { list, snaps, below: this.below.get(at) ?? [], at, g, t, waiting, silent, show, regroup, opened: view().open, start: startState(), setStart });
     }
 
     return v_flex().id("flow").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)

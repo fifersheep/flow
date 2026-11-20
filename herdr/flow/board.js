@@ -13,15 +13,17 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Input, Popover, Scrollbar } from "gpui-base";
-import { run, spaces } from "herdr";
+import { home, run, spaces } from "herdr";
 import {
   BOARDS, HEX, MODES, STAGES, ago, boardKey, boardTab, columns, endable, finished, gateOf, groups, lingering, phaseOf,
-  progressOf, short, since, slugOf, stageOf, startRepos, toggleGroup, turnOf,
+  pickable, progressOf, short, since, slugOf, stageOf, startRepos, toggleGroup, turnOf,
 } from "./model.js";
 
 const GATE_W = 220;
 const LANE_W = 170;
+const FILTER_AT = 6; // a repo menu longer than this gets a filter
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const tilde = (p) => (p === home() || p.startsWith(home() + "/") ? "~" + p.slice(home().length) : p);
 
 /** Shows a board's tab in the shown space, making it if it isn't there. */
 export function openBoard(view) {
@@ -31,13 +33,13 @@ export function openBoard(view) {
 }
 
 /** A whole board: header, the board, the open card over it, and the start bar. */
-export function board(v, kind, { list, snaps, g, t, waiting, silent, show, regroup, opened, start, setStart }) {
+export function board(v, kind, { list, snaps, below, at, g, t, waiting, silent, show, regroup, opened, start, setStart }) {
   const today = new Date().toISOString().slice(0, 10);
   const all = [...list, ...finished(snaps, list, today)];
   const index = new Map(all.map((c, i) => [c.dir, i]));
   const open = all.find((c) => c.dir === opened) ?? null;
   const ctx = { v, g, t, index, show, regroup, open };
-  v.repos = startRepos(snaps); // where the start bar can start a task
+  v.repos = startRepos(snaps, below); // where the start bar can start a task: the tasks' repos, and the folder's
   const body = !all.length ? empty(v, t) : kind === "stages" ? stages(ctx, all) : next(ctx, all);
   const done = all.filter((c) => turnOf(c) === "done").length;
   const other = kind === "stages" ? "next" : "stages";
@@ -49,6 +51,7 @@ export function board(v, kind, { list, snaps, g, t, waiting, silent, show, regro
       .child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(11).text_color(t.muted)
         .child(`${all.length - done} active${done ? ` · ${done} done this week` : ""}`))
       .when(waiting > 0, (e) => e.child(div().px(6).py(1).rounded(4).bg(HEX.you + "55").text_size(11).font_semibold().child(`${waiting} waiting on you`)))
+      .when(Boolean(at), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(`in ${tilde(at)}`)))
       .child(div().flex_1())
       .when(kind === "stages", (e) => e.child(div().text_size(11).text_color(t.muted).child("lanes by")).child(v.groupBy(g, t)))
       .child(v.button("other-board", `▦ ${BOARDS[other]}`, t, () => openBoard(other))))
@@ -213,19 +216,29 @@ function footer(ctx, all, start, setStart) {
     .when(open.length > 0, (e) => e.child(tray(ctx, open)));
 }
 
-/** Which repo a new task starts in: the repos this board reads. */
+/** Which repo a new task starts in: the repos this board reads, and every repo in its folder. */
 function repoPicker({ v, t }, repo, setStart) {
   const label = repo ? `${repo.name} ▾` : "no repo";
   if (v.repos.length < 2) return div().flex_none().px(8).py(3).rounded(5).bg(t.hover).text_size(11).text_color(t.muted).child(repo?.name ?? "no repo");
+  const shown = pickable(v.repos, v.repoFilter.value());
+  const pick = (r, cx) => { v.repoMenu = false; setStart({ repo: r.root }); cx.notify(); };
+  v.repoPick = shown[0] ? (cx) => pick(shown[0], cx) : null; // Enter in the filter takes the first
   return Popover.new("repo-pick").anchor("bottom_left").open(v.repoMenu)
-    .on_open_change((o, cx) => { v.repoMenu = o; cx.notify(); })
+    .on_open_change((o, cx) => {
+      v.repoMenu = o;
+      if (o && v.repos.length > FILTER_AT) { v.repoFilter.set_value(""); v.repoFilter.focus(); }
+      cx.notify();
+    })
     .trigger(div().id("repo-pick-btn").flex_none().px(8).py(3).rounded(5).bg(t.hover).text_size(11).cursor_pointer().child(label))
-    .content(v_flex().w(240).p(4).gap(1).rounded(8).border_1().border_color(t.border).bg(t.background).text_color(t.foreground)
-      .children(v.repos.map((r, k) => h_flex().id(`repo-${k}`).gap(6).px(6).py(3).rounded(4).text_size(12)
-        .cursor_pointer().hover((d) => d.bg(t.hover))
-        .on_click((_e, cx) => { v.repoMenu = false; setStart({ repo: r.root }); cx.notify(); })
-        .child(div().flex_none().w(10).text_color(HEX.done).child(r.root === repo?.root ? "✓" : ""))
-        .child(div().flex_1().min_w(0).truncate().child(r.name)))));
+    .content(v_flex().w(260).p(4).gap(4).rounded(8).border_1().border_color(t.border).bg(t.background).text_color(t.foreground)
+      .when(v.repos.length > FILTER_AT, (e) => e.child(Input.new(v.repoFilter)))
+      .child(v_flex().id("repo-list").max_h(320).overflow_y_scroll().gap(1)
+        .children(shown.map((r, k) => h_flex().id(`repo-${k}`).gap(6).px(6).py(3).rounded(4).text_size(12)
+          .cursor_pointer().hover((d) => d.bg(t.hover))
+          .on_click((_e, cx) => pick(r, cx))
+          .child(div().flex_none().w(10).text_color(HEX.done).child(r.root === repo?.root ? "✓" : ""))
+          .child(div().flex_1().min_w(0).truncate().child(r.name))))
+        .when(!shown.length, (e) => e.child(div().px(6).py(3).text_size(12).text_color(t.muted).child("No repo matches")))));
 }
 
 /** suggest | full | lite: "suggest" leaves it to flow's setup to ask. */

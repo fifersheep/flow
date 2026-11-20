@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, endable, events, finished, gateOf, groupBy, grouping, groups, labelled, lingering, progressOf, resumeArgs, signature, since, stageOf, startArgs, startMessage, startRepos, steps, tabName, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
+import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, endable, events, finished, gateOf, groupBy, grouping, groups, labelled, lingering, progressOf, resumeArgs, signature, since, stageOf, pickable, startArgs, startMessage, startRepos, steps, tabName, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -302,4 +302,16 @@ test("starting runs claude in the repo; resuming runs /flow in the task's own ch
 test("a new task can start in each repo read, a worktree's under its main checkout", () => {
   assert.deepEqual(startRepos([{ root: "/w/app-x", repo: "/w/app" }, { root: "/w/app", repo: "/w/app" }, { root: "/w/api" }, null]),
     [{ root: "/w/app", name: "app" }, { root: "/w/api", name: "api" }]);
+});
+
+test("startRepos adds the board folder's repos after the tasks' repos, once", () => {
+  assert.deepEqual(startRepos([{ root: "/w/web" }], ["/w/api", "/w/web", "/w/zed"]).map((r) => r.root), ["/w/web", "/w/api", "/w/zed"]);
+  assert.deepEqual(startRepos([], ["/w/api"]), [{ root: "/w/api", name: "api" }]);
+});
+
+test("pickable sorts by name and filters on it", () => {
+  const repos = [{ root: "/w/zed", name: "zed" }, { root: "/w/bee-topia", name: "bee-topia" }, { root: "/w/api", name: "api" }];
+  assert.deepEqual(pickable(repos, "").map((r) => r.name), ["api", "bee-topia", "zed"]);
+  assert.deepEqual(pickable(repos, " BEE ").map((r) => r.name), ["bee-topia"]);
+  assert.deepEqual(pickable(repos, "nope"), []);
 });

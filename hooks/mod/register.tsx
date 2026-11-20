@@ -147,7 +147,9 @@ async function herdrCommand($: EngineInterface, args: string): Promise<{ text: s
   const asked = args.trim().toLowerCase()
   const verb = Object.hasOwn(HERDR_VERBS, asked) ? HERDR_VERBS[asked] : undefined
   if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, board, next, or nothing to open the panel` }
-  const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, ...verb], { timeoutMs: 60000 })
+  // a board reads the repos where it was opened from: this session's folder
+  const at = verb[0] === 'board' ? ['--cwd', await $.session.cwd()] : []
+  const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, ...verb, ...at], { timeoutMs: 60000 })
   const r = JSON.parse(run.stdout) as { ok: boolean; message: string }
   return { text: `${r.ok ? GLYPH.next : GLYPH.blocked} ${r.message}` }
 }

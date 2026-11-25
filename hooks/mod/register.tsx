@@ -138,15 +138,15 @@ async function openFromButton($: EngineInterface, kind: OpenKind, dir: string): 
 }
 
 const HERDR_VERBS: Record<string, string[]> = {
-  '': ['panel'], open: ['panel'], install: ['install'], remove: ['remove'],
+  '': ['panel'], open: ['panel'], install: ['install'], remove: ['remove'], keys: ['keys'],
   board: ['board', 'stages'], stages: ['board', 'stages'], next: ['board', 'next'],
 }
 
-/** /flow-herdr [install|remove|board|next]: hooks/flow_herdr.py does it; its one line is the answer. */
+/** /flow-herdr [install|remove|board|next|keys]: hooks/flow_herdr.py does it; its one line is the answer. */
 async function herdrCommand($: EngineInterface, args: string): Promise<{ text: string }> {
   const asked = args.trim().toLowerCase()
   const verb = Object.hasOwn(HERDR_VERBS, asked) ? HERDR_VERBS[asked] : undefined
-  if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, board, next, or nothing to open the panel` }
+  if (!verb) return { text: `${GLYPH.blocked} flow-herdr: no "${asked}" — install, remove, board, next, keys, or nothing to open the panel` }
   // a board reads the repos where it was opened from: this session's folder
   const at = verb[0] === 'board' ? ['--cwd', await $.session.cwd()] : []
   const run = await $.process.run(['python3', `${$.plugin.root}/hooks/flow_herdr.py`, ...verb, ...at], { timeoutMs: 60000 })
@@ -220,8 +220,8 @@ export const register: Register = (on, options) => {
     })
     await $.command.register({
       name: 'flow-herdr',
-      description: "In the Herdr app: open the flow panel beside this session, a flow board tab (board, next), or install or remove it",
-      argumentHint: '[install|remove|board|next]',
+      description: "In the Herdr app: open the flow panel beside this session, a flow board tab (board, next), install or remove it, or bind keys that open the boards",
+      argumentHint: '[install|remove|board|next|keys]',
       immediate: true,
     })
     if (!e.isInteractive) return started

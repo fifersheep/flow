@@ -16,7 +16,7 @@ import { v_flex, h_flex, Input, Popover, Scrollbar } from "gpui-base";
 import { home, run, spaces } from "herdr";
 import {
   BOARDS, HEX, MODES, STAGES, ago, boardKey, boardTab, columns, endable, finished, gateOf, groups, lingering, phaseOf,
-  pickable, progressOf, short, since, slugOf, stageOf, startRepos, toggleGroup, turnOf,
+  pickable, progressOf, short, since, slugOf, stageOf, startRepos, toggleGroup, turnOf, folderChoices,
 } from "./model.js";
 
 const GATE_W = 220;
@@ -51,7 +51,7 @@ export function board(v, kind, { list, snaps, below, at, g, t, waiting, silent, 
       .child(div().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(11).text_color(t.muted)
         .child(`${all.length - done} active${done ? ` · ${done} done this week` : ""}`))
       .when(waiting > 0, (e) => e.child(div().px(6).py(1).rounded(4).bg(HEX.you + "55").text_size(11).font_semibold().child(`${waiting} waiting on you`)))
-      .when(Boolean(at), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.muted).child(`in ${tilde(at)}`)))
+      .when(Boolean(at), (e) => e.child(folderMenu(v, t, at)))
       .child(div().flex_1())
       .when(kind === "stages", (e) => e.child(div().text_size(11).text_color(t.muted).child("lanes by")).child(v.groupBy(g, t)))
       .child(v.button("other-board", `▦ ${BOARDS[other]}`, t, () => openBoard(other))))
@@ -62,6 +62,29 @@ export function board(v, kind, { list, snaps, below, at, g, t, waiting, silent, 
       .child(Scrollbar.vertical("board-area").absolute().inset_0())
       .when(Boolean(open), (e) => e.child(drawer(ctx, open))))
     .child(footer(ctx, all, start, setStart));
+}
+
+/** "in ~/dev ▾": the folder both boards read, and where else they can. */
+function folderMenu(v, t, at) {
+  const choices = folderChoices({ recent: v.recent }, at, spaces().map((s) => s.folder));
+  return Popover.new("folder-pick").anchor("top_left").open(v.folderMenu)
+    .on_open_change((o, cx) => {
+      v.folderMenu = o;
+      if (o) { v.folderNote = null; v.folderInput.set_value(""); v.folderInput.focus(); }
+      cx.notify();
+    })
+    .trigger(div().id("folder-pick-btn").min_w(0).truncate().px(6).py(1).rounded(4).cursor_pointer().hover((d) => d.bg(t.hover))
+      .text_size(11).text_color(t.muted).child(`in ${tilde(at)} ▾`))
+    .content(v_flex().w(320).p(6).gap(4).rounded(8).border_1().border_color(t.border).bg(t.background).text_color(t.foreground)
+      .child(div().px(4).text_size(11).text_color(t.muted).child("Both boards read this folder: its repo, or every repo in it"))
+      .child(v_flex().id("folder-list").max_h(260).overflow_y_scroll().gap(1)
+        .children(choices.map((f, k) => h_flex().id(`folder-${k}`).gap(6).px(6).py(3).rounded(4).text_size(12)
+          .cursor_pointer().hover((d) => d.bg(t.hover))
+          .on_click((_e, cx) => (f === at ? (v.folderMenu = false, cx.notify()) : v.setFolder(f, cx)))
+          .child(div().flex_none().w(10).text_color(HEX.done).child(f === at ? "✓" : ""))
+          .child(div().flex_1().min_w(0).truncate().child(tilde(f))))))
+      .child(Input.new(v.folderInput))
+      .when(Boolean(v.folderNote), (e) => e.child(div().px(4).text_size(11).text_color(HEX.you).child(v.folderNote))));
 }
 
 function empty(v, t) {

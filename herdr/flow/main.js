@@ -8,9 +8,9 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Input, InputState, Popover, TextView, Scrollbar } from "gpui-base";
-import { agents, appHome, exec, focused, home, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow } from "herdr";
+import { agents, appHome, checking, exec, focused, home, notify, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme, watchFolder, window as appWindow, writeTextFile } from "herdr";
 import { board, openBoard } from "./board.js";
-import { HEX, MODES, assign, boardOf, cards, endable, resumeArgs, startArgs, turnOf, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
+import { HEX, MODES, assign, boardOf, cards, duplicateBoard, folderDoc, movedTo, typedFolder, endable, resumeArgs, startArgs, turnOf, dropGroup, events, gateAsk, gateOf, groupBy, grouping, groups, labelled, phaseOf, progressOf, short, signature, slugOf, steps, toggleGroup, unreporting, wanted } from "./model.js";
 
 const TABS = ["progress", "plan", "decisions", "deviations"];
 const ROLE = { done: HEX.done, current: HEX.current, you: HEX.you };
@@ -58,10 +58,12 @@ function listen() {
   }
 }
 
-// The folder a board reads, recorded by `/flow-herdr board` (flow_herdr.py
-// board_file): the session's it was opened from. A board's tab has no
-// terminal, so without it a board reads the space's folder.
-const BOARD_FILE = () => `${home()}/.cache/flow/herdr-board.json`;
+// The folder a board reads, {folder, recent} (model.js folderDoc): set by
+// `/flow-herdr board` (flow_herdr.py board_file, the session's folder) or the
+// board's folder menu. A board's tab has no terminal, so without it a board
+// reads the space's folder.
+const BOARD_DIR = () => `${home()}/.cache/flow`;
+const BOARD_FILE = () => `${BOARD_DIR()}/herdr-board.json`;
 
 /** Where you are: the focused terminal's folder, else the tab's first, else the space's. */
 function here() {
@@ -85,6 +87,12 @@ export default class Flow extends View {
     this.ending = new Set(); //   terminals sent /exit, until flow_herdr.py end returns
     this.confirming = null; //    the terminal whose "End session…" is asking first
     this.folder = null; //        a board's folder (BOARD_FILE), when one was recorded
+    this.folderText = null; //    BOARD_FILE as last read, for writeTextFile's check
+    this.recent = []; //          the folders it was last set to, newest first
+    this.folderMenu = false; //   the header's folder menu, open
+    this.folderNote = null; //    why a typed folder wasn't taken
+    this.folderInput = InputState.new({ placeholder: "Type a folder: ~/dev, Enter" });
+    this.folderInput.on("submit", (_e, cx) => this.typeFolder(cx));
     this.below = new Map(); //    folder -> the repos in or under it (flow_herdr.py repos)
     this.repos = []; //           where a new task can start: the repos this copy reads, and the folder's
     this.repoMenu = false; //     the start bar's repo menu, open
@@ -118,10 +126,15 @@ export default class Flow extends View {
       for (const dir of [...this.rootOf.keys()]) this.load(dir, cx);
       for (const dir of [...this.below.keys()]) this.loadRepos(dir, cx);
     });
-    // a board follows the folder /flow-herdr board was last run from
+    // a board follows the folder last set, by /flow-herdr board or its menu
     if (this.board) {
       this.readFolder(cx);
       cx.timer.every(2000, (cx) => this.readFolder(cx));
+      // a key bound to tab.new makes a board even when there is one: show that one
+      if (!checking()) cx.timer.after(300, () => {
+        const dup = duplicateBoard(spaces(), this.board);
+        if (dup) { run("tab.select", { id: dup.keep }); run("tab.close", { id: dup.close }); }
+      });
     }
     // a board says how long each task has waited on you: keep that current
     if (this.board) cx.timer.every(60000, (cx) => cx.notify());
@@ -145,10 +158,48 @@ export default class Flow extends View {
   /** A board's folder, from BOARD_FILE; redraws only when it moved. */
   readFolder(cx) {
     cx.spawn(async (cx) => {
-      let folder = null;
-      try { folder = JSON.parse((await readTextFile(BOARD_FILE())) ?? "null")?.folder ?? null; } catch { folder = null; }
-      if (typeof folder !== "string" || !folder) folder = null;
-      if (folder !== this.folder) { this.folder = folder; cx.notify(); }
+      let text = null;
+      try { text = await readTextFile(BOARD_FILE()); } catch { return; }
+      this.folderText = text;
+      const doc = folderDoc(text);
+      if (doc.folder !== this.folder || doc.recent.join("\n") !== (this.recent ?? []).join("\n")) {
+        this.folder = doc.folder;
+        this.recent = doc.recent;
+        cx.notify();
+      }
+    });
+  }
+
+  /** Moves both boards to a folder: BOARD_FILE, which every board copy reads. */
+  setFolder(folder, cx) {
+    this.folderMenu = false;
+    this.folderNote = null;
+    cx.spawn(async (cx) => {
+      for (let tries = 0; tries < 2; tries++) {
+        try {
+          const text = await readTextFile(BOARD_FILE());
+          const doc = movedTo(folderDoc(text), folder);
+          if (text === null) await exec("mkdir", ["-p", BOARD_DIR()]);
+          await writeTextFile(BOARD_FILE(), JSON.stringify(doc) + "\n", text);
+          this.folder = doc.folder;
+          this.recent = doc.recent;
+          break;
+        } catch { /* changed under us: read it again */ }
+      }
+      cx.notify();
+    });
+    cx.notify();
+  }
+
+  /** The folder menu's typed folder: taken when it's a folder, else said why. */
+  typeFolder(cx) {
+    const folder = typedFolder(this.folderInput.value(), home());
+    if (!folder) { this.folderNote = "Type a full path, or one starting with ~"; cx.notify(); return; }
+    cx.spawn(async (cx) => {
+      let ok = false;
+      try { ok = (await exec("test", ["-d", folder])).code === 0; } catch { ok = false; }
+      if (ok) { this.folderInput.set_value(""); this.setFolder(folder, cx); }
+      else { this.folderNote = `No folder at ${folder}`; cx.notify(); }
     });
   }
 

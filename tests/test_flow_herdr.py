@@ -5,7 +5,7 @@ from unittest import mock
 HOOKS = Path(__file__).resolve().parent.parent / "hooks"
 sys.path.insert(0, str(HOOKS))
 import flow_herdr  # noqa: E402
-from flow_herdr import KEYS, MOD_SRC, VERSION, board, clear, do, end, in_herdr, install, label_task, labels_for, panel, remove, repos, session_start, snapshots, split, sync  # noqa: E402
+from flow_herdr import KEYS, KEYS_BOUND, MOD_SRC, VERSION, board, clear, do, end, in_herdr, install, keys, label_task, labels_for, panel, remove, repos, session_start, snapshots, split, sync  # noqa: E402
 
 ON_PATH = lambda name: f"/usr/local/bin/{name}"
 NOT_ON_PATH = lambda name: None
@@ -233,7 +233,18 @@ class TestBoard(HomeCase):
         board("stages", env, which=ON_PATH, run=Recorder((self.LS, 0), ({}, 0)), folder=str(self.home))
         f = flow_herdr.board_file(env)
         self.assertEqual(f, self.home / ".cache" / "flow" / "herdr-board.json")
-        self.assertEqual(json.loads(f.read_text()), {"folder": str(self.home.resolve())})
+        self.assertEqual(json.loads(f.read_text()), {"folder": str(self.home.resolve()), "recent": [str(self.home.resolve())]})
+
+    def test_a_new_folder_heads_the_recent_ones_once(self):
+        env = {"HOME": str(self.home)}
+        f = flow_herdr.board_file(env)
+        f.parent.mkdir(parents=True)
+        f.write_text(json.dumps({"folder": "/b", "recent": ["/b", "/a", "/c"]}))
+        flow_herdr.record_folder("/a", env)
+        self.assertEqual(json.loads(f.read_text()), {"folder": "/a", "recent": ["/a", "/b", "/c"]})
+        f.write_text("not json")
+        flow_herdr.record_folder("/d", env)
+        self.assertEqual(json.loads(f.read_text()), {"folder": "/d", "recent": ["/d"]})
 
     def test_without_a_folder_it_records_none(self):
         install(self.env, which=NOT_ON_PATH)
@@ -245,6 +256,42 @@ class TestBoard(HomeCase):
         self.assertFalse(board("frob", self.env, which=ON_PATH, run=Recorder())["ok"])
         self.assertIn("/flow-herdr install", board("next", self.env, which=ON_PATH, run=Recorder())["message"])
         self.assertFalse(board("next", {}, which=ON_PATH, run=Recorder())["ok"])
+
+
+class TestKeys(HomeCase):
+    def write(self, doc):
+        (self.home / "keys.json").write_text(json.dumps(doc))
+
+    def read(self):
+        return json.loads((self.home / "keys.json").read_text())
+
+    def test_binds_both_boards_and_keeps_every_other_key(self):
+        self.write({"global": {"cmd-t": "tab.new"}, "terminal": {"cmd-c": "terminal.copy"}})
+        doc = keys(self.env)
+        self.assertTrue(doc["ok"])
+        self.assertIn("⌘⇧B", doc["message"])
+        got = self.read()
+        self.assertEqual(got["global"], {"cmd-t": "tab.new", **KEYS_BOUND})
+        self.assertEqual(got["terminal"], {"cmd-c": "terminal.copy"})
+        self.assertEqual(KEYS_BOUND["cmd-shift-u"]["args"], {"name": "flow · next up", "mod": "flow", "props": {"view": "next"}})
+
+    def test_a_key_in_use_is_left_alone_and_said(self):
+        self.write({"global": {"cmd-shift-b": "layout.toggle:sidebar"}})
+        doc = keys(self.env)
+        self.assertIn("cmd-shift-b already do", doc["message"])
+        self.assertEqual(self.read()["global"]["cmd-shift-b"], "layout.toggle:sidebar")
+        self.assertEqual(self.read()["global"]["cmd-shift-u"], KEYS_BOUND["cmd-shift-u"])
+
+    def test_again_changes_nothing(self):
+        self.write({"global": dict(KEYS_BOUND)})
+        before = (self.home / "keys.json").read_text()
+        self.assertIn("already open the boards", keys(self.env)["message"])
+        self.assertEqual((self.home / "keys.json").read_text(), before)
+
+    def test_no_keys_file_or_a_broken_one(self):
+        self.assertFalse(keys(self.env)["ok"])
+        (self.home / "keys.json").write_text("{")
+        self.assertFalse(keys(self.env)["ok"])
 
 
 class TestEnd(unittest.TestCase):

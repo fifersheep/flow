@@ -7,6 +7,7 @@
     python3 flow_herdr.py install | remove | panel   /flow-herdr runs these
     python3 flow_herdr.py snapshots DIR              the Herdr panel runs this
     python3 flow_herdr.py repos DIR                  the board's start bar runs this
+    python3 flow_herdr.py keys                       /flow-herdr keys: the boards' shortcuts
 
 Herdr runs every terminal in herdr-core (`hc`) and tells the program inside
 which one it is in HC_TERMINAL_ID. Two things use that:
@@ -50,10 +51,14 @@ which one it is in HC_TERMINAL_ID. Two things use that:
   repo DIR is in, or, when DIR is in none (a folder holding several repos),
   of each repo directly under it that has flow tasks.
 - **The board.** `board` opens a board tab, and records the folder it was
-  opened from (the session's) in ~/.cache/flow/herdr-board.json. A board tab
-  has no terminal of its own, so that folder is where it reads tasks from, and
+  opened from (the session's) in ~/.cache/flow/herdr-board.json, as the
+  board's folder menu does. A board tab has no terminal of its own, so that
+  folder is where it reads tasks from, and
   `repos DIR` lists where its start bar can start one: DIR's repo, or every
-  repo directly under DIR, tasks or not.
+  repo directly under DIR, tasks or not. The board's header menu moves it.
+  `keys` binds ⌘⇧B and ⌘⇧U in Herdr's keys.json to open the boards, so
+  neither needs a Claude Code session: a board opened again closes itself
+  and shows the one already there.
 
 Outside Herdr none of this runs. Like everything the mod does, it is display:
 a failed label costs a stale panel, never a session or a gate.
@@ -244,6 +249,63 @@ def board_file(env=os.environ):
     return Path(env.get("HOME") or Path.home()) / ".cache" / "flow" / "herdr-board.json"
 
 
+RECENT = 8  # folders the board's folder menu offers again (herdr/flow/model.js RECENT)
+
+
+def record_folder(folder, env=os.environ):
+    """Point both boards at a folder: {folder, recent}, the folder heading the
+    recent ones, once (herdr/flow/model.js movedTo, which the menu writes)."""
+    f = board_file(env)
+    try:
+        old = json.loads(f.read_text())
+        old = old if isinstance(old, dict) else {}
+    except Exception:
+        old = {}
+    recent = [r for r in [folder, *(old.get("recent") or []), old.get("folder")] if isinstance(r, str) and r]
+    recent = list(dict.fromkeys(recent))[:RECENT]
+    f.parent.mkdir(parents=True, exist_ok=True)
+    put(f, (json.dumps({"folder": folder, "recent": recent}) + "\n").encode())
+
+
+# Herdr keys that open the boards (tab.new with the mod: a board already open
+# closes the copy and shows itself, herdr/flow/main.js)
+KEYS_BOUND = {
+    "cmd-shift-b": {"command": "tab.new", "args": {"name": BOARDS["stages"], "mod": MOD, "props": {"view": "stages"}}},
+    "cmd-shift-u": {"command": "tab.new", "args": {"name": BOARDS["next"], "mod": MOD, "props": {"view": "next"}}},
+}
+
+
+def keys(env=os.environ):
+    """Bind KEYS_BOUND in Herdr's keys.json; a key already bound to something
+    else is left as it is, and said."""
+    path = app_home(env) / "keys.json"
+    try:
+        doc = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {"ok": False, "message": f"no Herdr keys at {tilde(path)}: open the Herdr app first"}
+    except ValueError as exc:
+        return {"ok": False, "message": f"couldn't read {tilde(path)}: {exc}"}
+    keymap = doc.setdefault("global", {})
+    added, taken = [], []
+    for key, action in KEYS_BOUND.items():
+        if key not in keymap:
+            keymap[key] = action
+            added.append(key)
+        elif keymap[key] != action:
+            taken.append(key)
+    if added:
+        put(path, (json.dumps(doc, indent=2, ensure_ascii=False) + "\n").encode())
+    names = {"cmd-shift-b": "⌘⇧B the stages board", "cmd-shift-u": "⌘⇧U next up"}
+    parts = []
+    if added:
+        parts.append("bound " + ", ".join(names[k] for k in added))
+    if taken:
+        parts.append(", ".join(k for k in taken) + " already do something else, so left alone")
+    if not added and not taken:
+        parts.append("⌘⇧B and ⌘⇧U already open the boards")
+    return {"ok": not taken or bool(added), "message": "; ".join(parts)}
+
+
 def board(view, env=os.environ, which=shutil.which, run=subprocess.run, folder=None):
     """Show a board's tab in the shown space, making it when there isn't one.
     With a folder, the boards read that folder's repos from now on."""
@@ -254,9 +316,7 @@ def board(view, env=os.environ, which=shutil.which, run=subprocess.run, folder=N
     if installed(env) is None:
         return {"ok": False, "message": "the flow panel isn't installed: run /flow-herdr install"}
     if folder:
-        f = board_file(env)
-        f.parent.mkdir(parents=True, exist_ok=True)
-        put(f, (json.dumps({"folder": str(Path(folder).resolve())}) + "\n").encode())
+        record_folder(str(Path(folder).resolve()), env)
     name = BOARDS[view]
     r = run(["herdr-app", "ls"], capture_output=True, text=True, timeout=TIMEOUT)
     try:
@@ -466,14 +526,14 @@ def main(argv):
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    if argv[:1] in (["install"], ["remove"], ["panel"]):
+    if argv[:1] in (["install"], ["remove"], ["panel"], ["keys"]):
         try:
-            doc = {"install": install, "remove": remove, "panel": panel}[argv[0]]()
+            doc = {"install": install, "remove": remove, "panel": panel, "keys": keys}[argv[0]]()
         except Exception as exc:
             doc = {"ok": False, "message": str(exc)}
         print(json.dumps(doc))
         return 0
-    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | board [stages|next] [--cwd DIR] | end TERMINAL | snapshots DIR | repos DIR", file=sys.stderr)
+    print("usage: flow_herdr.py split TERMINAL SIDE DIR | start | clear | install | remove | panel | keys | board [stages|next] [--cwd DIR] | end TERMINAL | snapshots DIR | repos DIR", file=sys.stderr)
     return 2
 
 

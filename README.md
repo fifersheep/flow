@@ -129,7 +129,7 @@ Then, in a repo:
 | `/flow-pane [tab]` | Open the pane: `progress`, `plan`, `decisions`, `deviations`, `tasks` |
 | `/flow-term [task \| setup]` | Terminal in a task's worktree, or the split's setup checklist |
 | `/flow-code [task]` | Open a task's worktree in your editor |
-| `/flow-herdr [install \| remove \| board \| next]` | In Herdr: open the flow panel beside the session, a board tab, or install or remove it |
+| `/flow-herdr [install \| remove \| board \| next \| keys]` | In Herdr: open the flow panel beside the session, a board tab, install or remove it, or bind ⌘⇧B / ⌘⇧U to open the boards |
 
 ## Configuration
 

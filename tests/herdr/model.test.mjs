@@ -1,7 +1,7 @@
 // The flow panel's pure logic (herdr/flow/model.js). Run: node --test tests/herdr/*.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, endable, events, finished, gateOf, groupBy, grouping, groups, labelled, lingering, progressOf, resumeArgs, signature, since, stageOf, pickable, startArgs, startMessage, startRepos, steps, tabName, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
+import { ago, assign, boardKey, boardOf, boardTab, cards, columns, dropGroup, endable, events, finished, gateOf, groupBy, grouping, groups, labelled, lingering, progressOf, resumeArgs, signature, since, stageOf, duplicateBoard, folderChoices, folderDoc, movedTo, parentOf, pickable, typedFolder, startArgs, startMessage, startRepos, steps, tabName, toggleGroup, turnOf, unreporting, wanted } from "../../herdr/flow/model.js";
 
 const term = (address, labels) => ({ address, labels });
 const flow = (over = {}) => ({ "flow.task": "add-widget", "flow.phase": "implementation", "flow.mode": "full", "flow.progress": "3/7", "flow.dir": "/r/docs/tasks/a", ...over });
@@ -314,4 +314,39 @@ test("pickable sorts by name and filters on it", () => {
   assert.deepEqual(pickable(repos, "").map((r) => r.name), ["api", "bee-topia", "zed"]);
   assert.deepEqual(pickable(repos, " BEE ").map((r) => r.name), ["bee-topia"]);
   assert.deepEqual(pickable(repos, "nope"), []);
+});
+
+test("folderDoc reads {folder, recent}, and nothing from a missing or broken file", () => {
+  assert.deepEqual(folderDoc('{"folder": "/w", "recent": ["/w", 3, ""]}'), { folder: "/w", recent: ["/w"] });
+  assert.deepEqual(folderDoc(null), { folder: null, recent: [] });
+  assert.deepEqual(folderDoc("{"), { folder: null, recent: [] });
+  assert.deepEqual(folderDoc('{"folder": "/w"}'), { folder: "/w", recent: [] }); // as flow 0.13 wrote it
+});
+
+test("movedTo puts the folder first in the recent ones, once, and keeps the old one", () => {
+  assert.deepEqual(movedTo({ folder: "/a", recent: ["/b", "/a"] }, "/b"), { folder: "/b", recent: ["/b", "/a"] });
+  assert.deepEqual(movedTo({ folder: "/w", recent: [] }, "/x"), { folder: "/x", recent: ["/x", "/w"] });
+  assert.equal(movedTo({ folder: null, recent: Array.from({ length: 20 }, (_, i) => `/${i}`) }, "/n").recent.length, 8);
+});
+
+test("typedFolder takes ~ and full paths only", () => {
+  assert.equal(typedFolder(" ~/dev/ ", "/Users/s"), "/Users/s/dev");
+  assert.equal(typedFolder("~", "/Users/s"), "/Users/s");
+  assert.equal(typedFolder("/", "/Users/s"), "/");
+  assert.equal(typedFolder("dev", "/Users/s"), null);
+  assert.equal(typedFolder("", "/Users/s"), null);
+});
+
+test("folderChoices: the folder, recent ones, its parent, the spaces' folders; each once", () => {
+  assert.deepEqual(folderChoices({ recent: ["/u/dev", "/u/dev/app"] }, "/u/dev", ["/u/dev/app", "/u/x"]), ["/u/dev", "/u/dev/app", "/u", "/u/x"]);
+  assert.equal(parentOf("/"), null);
+  assert.equal(parentOf("/u"), "/");
+});
+
+test("duplicateBoard: a board opened again closes itself and shows the first", () => {
+  const space = (tabs) => [{ active: false, tabs: [{ id: "z", name: "flow · stages", active: true }] }, { active: true, tabs }];
+  assert.deepEqual(duplicateBoard(space([{ id: "a", name: "flow · stages", active: false }, { id: "b", name: "flow · stages", active: true }]), "stages"), { keep: "a", close: "b" });
+  assert.equal(duplicateBoard(space([{ id: "a", name: "flow · stages", active: true }]), "stages"), null);
+  assert.equal(duplicateBoard(space([{ id: "a", name: "flow · stages", active: false }, { id: "b", name: "1", active: true }]), "stages"), null);
+  assert.equal(duplicateBoard(space([{ id: "a", name: "flow · next up", active: false }, { id: "b", name: "flow · next up", active: true }]), "stages"), null);
 });

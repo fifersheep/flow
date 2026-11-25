@@ -201,12 +201,20 @@ PATH, flow uses it (`hooks/flow_herdr.py`):
   board's header opens the other. Asking again shows the tab already in the
   shown space rather than making another.
 
-  A board reads the folder you ran `/flow-herdr board` or `next` from (its
-  header shows it, "in ~/dev"): that repo, or, in a folder of repos such as
-  `~/dev`, every repo directly under it. A board tab has no terminal of its
-  own, so before you've run either it reads the space's folder. The folder
-  is kept in `~/.cache/flow/herdr-board.json`, shared by both boards, and
-  moves each time you run one from somewhere else.
+  A board reads one folder: that repo, or, in a folder of repos such as
+  `~/dev`, every repo directly under it. Its header shows it (**in ~/dev ▾**),
+  and that menu moves both boards: to a folder used before, the folder's
+  parent, a space's folder, or one you type (`~/…` or a full path).
+  `/flow-herdr board` or `next` moves it too, to the session's folder. A
+  board tab has no terminal of its own, so until either sets one it reads
+  the space's folder. The folder and the recent ones are kept in
+  `~/.cache/flow/herdr-board.json`.
+
+  The boards don't need a Claude Code session. `/flow-herdr keys`, once,
+  binds **⌘⇧B** (stages) and **⌘⇧U** (next up) in Herdr's `keys.json`,
+  leaving any key you already use alone. A board opened while its tab is
+  already open closes itself and shows that tab. Editing `keys.json` makes it
+  yours: Herdr stops adding its new default shortcuts to it on upgrade.
 
   *Stages* has a lane per repo, or per group you made (the same **repo |
   manual** switch as the panel), across **Shape** (setup to plan review),

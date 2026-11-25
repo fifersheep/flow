@@ -411,3 +411,56 @@ export function pickable(repos, text) {
   const q = (text ?? "").trim().toLowerCase();
   return [...(repos ?? [])].filter((r) => !q || r.name.toLowerCase().includes(q)).sort((x, y) => x.name.localeCompare(y.name));
 }
+
+// The board's folder. flow_herdr.py board and the board's folder menu keep it
+// in ~/.cache/flow/herdr-board.json as {folder, recent}: where both boards
+// read, and the folders it was last set to, newest first.
+export const RECENT = 8;
+
+/** The folder file's text as {folder, recent}; nulls and [] when it's absent or unreadable. */
+export function folderDoc(text) {
+  let v = null;
+  try { v = JSON.parse(text ?? "null"); } catch { v = null; }
+  const folder = typeof v?.folder === "string" && v.folder ? v.folder : null;
+  const recent = Array.isArray(v?.recent) ? v.recent.filter((f) => typeof f === "string" && f) : [];
+  return { folder, recent };
+}
+
+/** The doc once the board moves to `folder`: it heads the recent ones, once. */
+export function movedTo(doc, folder) {
+  const recent = [folder, ...(doc?.recent ?? []), doc?.folder].filter((f, i, all) => f && all.indexOf(f) === i);
+  return { folder, recent: recent.slice(0, RECENT) };
+}
+
+/** A typed folder as an absolute path: "~" is home, a trailing "/" goes; null if it isn't absolute. */
+export function typedFolder(text, home) {
+  let f = (text ?? "").trim();
+  if (f === "~" || f.startsWith("~/")) f = home + f.slice(1);
+  if (f.length > 1) f = f.replace(/\/+$/, "");
+  return f.startsWith("/") ? f : null;
+}
+
+/** The parent of an absolute folder; null at the root. */
+export const parentOf = (f) => (f && f !== "/" ? f.slice(0, f.lastIndexOf("/")) || "/" : null);
+
+/**
+ * The folder menu's choices: the recent ones, then the folder's parent, then
+ * the spaces' folders; each once, the current one included (it's ticked).
+ */
+export function folderChoices(doc, current, spaceFolders) {
+  const all = [current, ...(doc?.recent ?? []), parentOf(current), ...(spaceFolders ?? [])];
+  return all.filter((f, i) => f && all.indexOf(f) === i);
+}
+
+/**
+ * A board tab opened a second time (a key bound to tab.new, which always
+ * makes one): the shown space's tabs with its name, when the shown tab is one
+ * of them and another exists. {keep, close}: select the older, close this.
+ */
+export function duplicateBoard(spaces, view) {
+  const space = (spaces ?? []).find((s) => s.active);
+  const same = (space?.tabs ?? []).filter((t) => t.name === BOARDS[view]);
+  const mine = same.find((t) => t.active);
+  const other = same.find((t) => !t.active);
+  return mine && other ? { keep: other.id, close: mine.id } : null;
+}
